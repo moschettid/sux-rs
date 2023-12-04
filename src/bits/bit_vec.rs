@@ -38,7 +38,7 @@ use std::{
 
 const BITS: usize = usize::BITS as usize;
 
-#[derive(Epserde, Debug)]
+#[derive(Epserde, Debug, Clone)]
 /// A bit vector.
 pub struct BitVec<B = Vec<usize>> {
     data: B,
@@ -119,6 +119,15 @@ impl BitVec<Vec<usize>> {
             }
         }
         self.len = new_len;
+    }
+
+    //Ha più senso fare con un qualsiasi B anziché solo con Vec<usize>?
+    pub fn mut_bits(&mut self) -> &mut Vec<usize> {
+        &mut self.data
+    }
+
+    pub fn bits(&self) -> &Vec<usize> {
+        &self.data
     }
 }
 

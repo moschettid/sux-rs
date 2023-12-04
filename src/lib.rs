@@ -12,6 +12,7 @@ pub mod bits;
 pub mod dict;
 pub mod func;
 pub mod rank_sel;
+pub mod solvers;
 pub mod traits;
 pub mod utils;
 
@@ -20,6 +21,7 @@ pub mod prelude {
     pub use crate::dict::*;
     pub use crate::func::*;
     pub use crate::rank_sel::*;
+    pub use crate::solvers::*;
     pub use crate::traits::bit_field_slice;
     pub use crate::traits::*;
     pub use crate::utils::*;
