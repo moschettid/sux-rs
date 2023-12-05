@@ -16,6 +16,9 @@ pub mod solvers;
 pub mod traits;
 pub mod utils;
 
+#[cfg(feature = "fuzz")]
+pub mod fuzz;
+
 pub mod prelude {
     pub use crate::bits::*;
     pub use crate::dict::*;
