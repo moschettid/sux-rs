@@ -26,16 +26,6 @@ impl Modulo2Equation {
         }
     }
 
-    fn from_equation(equation: &Modulo2Equation) -> Self {
-        let bv = equation.bit_vector.clone();
-        Modulo2Equation {
-            bit_vector: bv,
-            c: equation.c,
-            first_var: equation.first_var,
-            is_empty: equation.is_empty,
-        }
-    }
-
     pub fn add(&mut self, variable: usize) -> &mut Self{
         assert!(!self.bit_vector.get(variable));
         self.bit_vector.set(variable, true);
@@ -98,13 +88,6 @@ impl Modulo2System {
         Modulo2System {
             num_vars: num_vars,
             equations: Vec::new(),
-        }
-    }
-
-    fn from_copied (num_vars: u32, equations: &Vec<Rc<RefCell<Modulo2Equation>>>) -> Self {
-        Modulo2System {
-            num_vars: num_vars,
-            equations: equations.iter().map(|eq| {Rc::new(RefCell::new(eq.borrow().clone()))}).collect(),
         }
     }
 
