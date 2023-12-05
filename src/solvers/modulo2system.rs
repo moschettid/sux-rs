@@ -92,8 +92,8 @@ impl Modulo2Equation {
 
     pub fn add_equation(&mut self, equation: &Modulo2Equation) {
         self.c ^= equation.c;
-        let x = self.bit_vector.mut_bits();
-        let y = equation.bit_vector.bits();
+        let x = self.bit_vector.as_mut();
+        let y = equation.bit_vector.as_ref();
         let mut is_not_empty: usize = 0;
         //TODO: non sicuro del fatto che sia idiomatico
         for i in 0..x.len(){
@@ -108,7 +108,7 @@ impl Modulo2Equation {
         else {
             //TODO non sicuro del fatto che sia idiomatico
             let mut i = 0;
-            let bits = self.bit_vector.bits();
+            let bits = self.bit_vector.as_ref();
             while bits[i]==0 {i+=1};
             //Mi sembra possa essere scritto meglio
             self.first_var = i*usize::BITS as usize + bits[i].trailing_zeros() as usize;
@@ -123,7 +123,7 @@ impl Modulo2Equation {
         self.is_empty && self.c==0
     }
 
-    fn scalar_product(bits: &Vec<usize>, values: &Vec<u64>) -> u64 {
+    fn scalar_product(bits: &[usize], values: &Vec<u64>) -> u64 {
         let mut sum: u64 = 0;
         //TODO: non sicuro del fatto che sia idiomatico
         for i in 0..bits.len() {
@@ -184,7 +184,7 @@ impl Modulo2System {
     pub fn check(&self, solution: &Vec<u64>) -> bool {
         assert!(solution.len() == self.num_vars as usize); //Dovrebbe essere più informativo in caso si verifichi l'errore(?)
         self.equations.iter().map(|eq| eq.borrow()).all(|eq|
-            eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.bits(), &solution)
+            eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution)
         )
     }
 
@@ -242,7 +242,7 @@ impl Modulo2System {
         //Versione che mi sembra più idiomatica
         self.equations.iter().rev().map(|eq| eq.borrow()).filter(|eq| !eq.is_identity()).for_each(|eq| {
             assert!(solution[eq.first_var as usize] == 0);
-            solution[eq.first_var as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.bits(), &solution);
+            solution[eq.first_var as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
         });
         true
     }
@@ -371,7 +371,7 @@ impl Modulo2System {
 
         let equations = &system.equations;
         //Un bit vector contenente 1 in corrispondenza di ogni variabile idle
-        let mut idle_normalized = vec![usize::MAX; equations[0].borrow().bit_vector.bits().len()];
+        let mut idle_normalized = vec![usize::MAX; equations[0].borrow().bit_vector.as_ref().len()];
 
         //A solo scopo di debug
         let mut num_active = 0;
@@ -401,8 +401,8 @@ impl Modulo2System {
                     dense.push(Rc::clone(&ref_equation));
                 } else if priority[first as usize] == 1 {
                     let mut word_index = 0;
-                    while (equation.bit_vector.bits()[word_index] & idle_normalized[word_index]) == 0 {word_index += 1}
-                    let pivot = word_index * usize::BITS as usize + (equation.bit_vector.bits()[word_index] & idle_normalized[word_index]).trailing_zeros() as usize;
+                    while (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]) == 0 {word_index += 1}
+                    let pivot = word_index * usize::BITS as usize + (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]).trailing_zeros() as usize;
                     pivots.push(pivot as u32);
                     solved.push(Rc::clone(&ref_equation));
                     weight[pivot] = 0;
@@ -424,7 +424,7 @@ impl Modulo2System {
             let eq = solved[i].borrow();
             let pivot = pivots[i];
             assert!(solution[pivot as usize] == 0);
-            solution[pivot as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.bits(), &solution);
+            solution[pivot as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
         }
 
         true
