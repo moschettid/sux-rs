@@ -5,21 +5,21 @@ use std::rc::Rc;
 #[derive(Clone, Debug)]
 pub struct Modulo2Equation {
     bit_vector: BitVec,
-    c: u64,
+    c: usize,
     first_var: usize,
     is_empty: bool,
 }
 
 #[derive(Debug)]
 pub struct Modulo2System {
-    num_vars: u32,
+    num_vars: usize,
     equations: Vec<Rc<RefCell<Modulo2Equation>>>,
 }
 
 impl Modulo2Equation {
-    pub fn new(c: u64, num_vars: u32) -> Self {
+    pub fn new(c: usize, num_vars: usize) -> Self {
         Modulo2Equation {
-            bit_vector: BitVec::new(num_vars as usize),
+            bit_vector: BitVec::new(num_vars),
             c: c,
             first_var: usize::MAX,
             is_empty: true,
@@ -42,7 +42,7 @@ impl Modulo2Equation {
         self.c ^= equation.c;
         let x = self.bit_vector.as_mut();
         let y = equation.bit_vector.as_ref();
-        let mut is_not_empty: usize = 0;
+        let mut is_not_empty = 0;
         for i in 0..x.len(){
             x[i] ^= y[i];
             is_not_empty |= x[i];
@@ -68,8 +68,8 @@ impl Modulo2Equation {
         self.is_empty && self.c==0
     }
 
-    fn scalar_product(bits: &[usize], values: &Vec<u64>) -> u64 {
-        let mut sum: u64 = 0;
+    fn scalar_product(bits: &[usize], values: &Vec<usize>) -> usize {
+        let mut sum = 0;
         for i in 0..bits.len() {
             let offset = i * usize::BITS as usize;
             let mut word = bits[i];
@@ -84,14 +84,14 @@ impl Modulo2Equation {
 }
 
 impl Modulo2System {
-    pub fn new (num_vars: u32) -> Self {
+    pub fn new (num_vars: usize) -> Self {
         Modulo2System {
             num_vars: num_vars,
             equations: Vec::new(),
         }
     }
 
-    fn from (num_vars: u32, equations: Vec<Rc<RefCell<Modulo2Equation>>>) -> Self {
+    fn from (num_vars: usize, equations: Vec<Rc<RefCell<Modulo2Equation>>>) -> Self {
         Modulo2System {
             num_vars: num_vars,
             equations: equations,
@@ -99,12 +99,12 @@ impl Modulo2System {
     }
 
     pub fn add(&mut self, equation: Modulo2Equation) {
-        assert!(equation.bit_vector.len() == self.num_vars as usize);
+        assert!(equation.bit_vector.len() == self.num_vars);
         self.equations.push(Rc::new(RefCell::new(equation)));
     }
 
-    pub fn check(&self, solution: &Vec<u64>) -> bool {
-        assert!(solution.len() == self.num_vars as usize);
+    pub fn check(&self, solution: &Vec<usize>) -> bool {
+        assert!(solution.len() == self.num_vars);
         self.equations.iter().map(|eq| eq.borrow()).all(|eq|
             eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution)
         )
@@ -142,22 +142,22 @@ impl Modulo2System {
         true
     }
 
-    pub fn gaussian_elimination(&mut self, solution: &mut Vec<u64>) -> bool {
-        assert!(solution.len() == self.num_vars as usize);
+    pub fn gaussian_elimination(&mut self, solution: &mut Vec<usize>) -> bool {
+        assert!(solution.len() == self.num_vars);
         self.equations.iter().for_each(|x| x.borrow_mut().update_first_var());
 
         if !self.echelon_form() {return false};
 
         self.equations.iter().rev().map(|eq| eq.borrow()).filter(|eq| !eq.is_identity()).for_each(|eq| {
-            assert!(solution[eq.first_var as usize] == 0);
-            solution[eq.first_var as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
+            assert!(solution[eq.first_var] == 0);
+            solution[eq.first_var] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
         });
         true
     }
 
     //Only for testing purposes
-    pub fn lazy_gaussian_elimination_constructor(&mut self, solution: &mut Vec<u64>) -> bool {
-        let num_vars = self.num_vars as usize;
+    pub fn lazy_gaussian_elimination_constructor(&mut self, solution: &mut Vec<usize>) -> bool {
+        let num_vars = self.num_vars;
         let mut var2_eq = vec![Vec::new(); num_vars];
         let mut d = vec![0; num_vars];
         self.equations.iter().map(|e| e.borrow()).for_each(|eq|
@@ -171,32 +171,32 @@ impl Modulo2System {
             let eq = e.borrow();
             c[i] = eq.c;
             (0..eq.bit_vector.len()).filter(|&x| eq.bit_vector.get(x)).for_each(|x|
-                var2_eq[x].push(i as u32)
+                var2_eq[x].push(i)
             );
         });
-        Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars as u32).collect(), solution)
+        Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars).collect(), solution)
     }
 
-    fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<u32>>, c: &Vec<u64>, variable: &Vec<u32>, solution: &mut Vec<u64>) -> bool {
+    fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<usize>>, c: &Vec<usize>, variable: &Vec<usize>, solution: &mut Vec<usize>) -> bool {
         let num_equations = c.len();
         if num_equations == 0 {return true};
 
         let num_vars = var2_eq.len();
         assert!(solution.len() == num_vars);
 
-        let mut new_system = Modulo2System::new(num_vars as u32);
+        let mut new_system = Modulo2System::new(num_vars);
         let build_system = system_op.is_none();
         let system;
         if build_system {
             system = &mut new_system;
-            c.iter().for_each(|&x| system.add(Modulo2Equation::new(x, num_vars as u32)));
+            c.iter().for_each(|&x| system.add(Modulo2Equation::new(x, num_vars)));
         } else {system = system_op.unwrap()};
         
-        let mut weight: Vec<u32> = vec![0; num_vars];
-        let mut priority: Vec<u32> = vec![0; num_equations];
+        let mut weight: Vec<usize> = vec![0; num_vars];
+        let mut priority: Vec<usize> = vec![0; num_equations];
 
         for &v in variable.iter(){
-            let eq = &mut var2_eq[v as usize];
+            let eq = &mut var2_eq[v];
             if eq.len() == 0 {continue};
 
             let mut curr_eq = eq[0];
@@ -207,9 +207,9 @@ impl Modulo2System {
                 if eq[i] != curr_eq {
                     assert!(eq[i] > curr_eq);
                     if curr_coeff {
-                        if build_system { system.equations[curr_eq as usize].borrow_mut().add(v as usize); }
-                        weight[v as usize] += 1;
-                        priority[curr_eq as usize] += 1;
+                        if build_system { system.equations[curr_eq].borrow_mut().add(v); }
+                        weight[v] += 1;
+                        priority[curr_eq] += 1;
                         eq[j] = curr_eq;
                         j += 1;
                     }
@@ -219,9 +219,9 @@ impl Modulo2System {
             }
 
             if curr_coeff {
-                if build_system { system.equations[curr_eq as usize].borrow_mut().add(v as usize); }
-                weight[v as usize] += 1;
-                priority[curr_eq as usize] += 1;
+                if build_system { system.equations[curr_eq].borrow_mut().add(v); }
+                weight[v] += 1;
+                priority[curr_eq] += 1;
                 eq[j] = curr_eq;
                 j+=1;
             }
@@ -232,21 +232,21 @@ impl Modulo2System {
         {
             let mut count = vec![0; num_equations+1];
 
-            for x in 0..num_vars {count[weight[x] as usize] += 1};
+            for x in 0..num_vars {count[weight[x]] += 1};
             for i in 1..num_equations {count[i] += count[i-1]};
             for i in (0..num_vars).rev() {
-                count[weight[i] as usize] -= 1;
-                variables[count[weight[i] as usize]] = i as u32;
+                count[weight[i]] -= 1;
+                variables[count[weight[i]]] = i;
             }
         }
 
-        let mut equation_list: Vec<u32> = (0..priority.len() as u32)
-        .filter(|&x| priority[x as usize] <= 1)
+        let mut equation_list: Vec<usize> = (0..priority.len())
+        .filter(|&x| priority[x] <= 1)
         .collect();
 
         let mut dense: Vec<Rc<RefCell<Modulo2Equation>>> = Vec::new();
         let mut solved: Vec<Rc<RefCell<Modulo2Equation>>> = Vec::new();
-        let mut pivots: Vec<u32> = Vec::new();
+        let mut pivots: Vec<usize> = Vec::new();
 
         let equations = &system.equations;
         let mut idle_normalized = vec![usize::MAX; equations[0].borrow().bit_vector.as_ref().len()];
@@ -255,49 +255,49 @@ impl Modulo2System {
         while remaining != 0 {
             if equation_list.is_empty() {
                 let mut var = variables.pop().unwrap();
-                while weight[var as usize] == 0 {var = variables.pop().unwrap()};
-                idle_normalized[var as usize / usize::BITS as usize] ^= 1 << (var % usize::BITS);
-                var2_eq[var as usize].iter().for_each(|&eq|{
-                    priority[eq as usize] -= 1;
-                    if priority[eq as usize] == 1 {equation_list.push(eq)}
+                while weight[var] == 0 {var = variables.pop().unwrap()};
+                idle_normalized[var / usize::BITS as usize] ^= 1 << (var % usize::BITS as usize);
+                var2_eq[var].iter().for_each(|&eq|{
+                    priority[eq] -= 1;
+                    if priority[eq] == 1 {equation_list.push(eq)}
                 });
             }
             else {
                 remaining -= 1;
                 let first = equation_list.pop().unwrap();
-                let ref_equation = &equations[first as usize];
+                let ref_equation = &equations[first];
                 let equation = ref_equation.borrow();
 
-                if priority[first as usize] == 0 {
+                if priority[first] == 0 {
                     if equation.is_unsolvable() {return false};
                     if equation.is_identity() {continue};
                     dense.push(Rc::clone(&ref_equation));
-                } else if priority[first as usize] == 1 {
+                } else if priority[first] == 1 {
                     let mut word_index = 0;
                     while (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]) == 0 {word_index += 1}
                     let pivot = word_index * usize::BITS as usize + (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]).trailing_zeros() as usize;
-                    pivots.push(pivot as u32);
+                    pivots.push(pivot);
                     solved.push(Rc::clone(&ref_equation));
                     weight[pivot] = 0;
                     var2_eq[pivot].iter()
                     .filter(|&&eq_idx| eq_idx != first)
                     .for_each(|&eq|{
-                        priority[eq as usize] -= 1;
-                        if priority[eq as usize] == 1 {equation_list.push(eq)}
-                        equations[eq as usize].borrow_mut().add_equation(&equation);
+                        priority[eq] -= 1;
+                        if priority[eq] == 1 {equation_list.push(eq)}
+                        equations[eq].borrow_mut().add_equation(&equation);
                     });
                 }
             }
         }
 
-        let mut dense_system = Modulo2System::from(num_vars as u32, dense);
+        let mut dense_system = Modulo2System::from(num_vars, dense);
         if !dense_system.gaussian_elimination(solution) {return false};
 
         for i in 0..solved.len() {
             let eq = solved[i].borrow();
             let pivot = pivots[i];
-            assert!(solution[pivot as usize] == 0);
-            solution[pivot as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
+            assert!(solution[pivot] == 0);
+            solution[pivot] = eq.c ^ Modulo2Equation::scalar_product(eq.bit_vector.as_ref(), &solution);
         }
 
         true

@@ -4,12 +4,8 @@ use sux::solvers::modulo2system::Modulo2System;
 use sux::solvers::modulo2system::Modulo2Equation;
 use rand::Rng;
 
-//TODO tutto
-
 #[test]
 fn test_builder() {
-    //eq è mut perchè è l'unico modo pere usare add in chain. Ma se potessi
-    //aggiungere in creazione non sarebbe mut (problema da poco)
     let mut eq = Modulo2Equation::new(2, 3);
     eq.add(2).add(0).add(1);
     assert_eq!(eq.variables().len(), 3);
@@ -66,7 +62,6 @@ fn test_redundant(){
 #[test]
 fn test_small(){
     let mut system = Modulo2System::new(11);
-    //system.add(Modulo2Equation::new(0,11).add(1).add(4).add(10));
     let mut eq = Modulo2Equation::new(0,11);
     eq.add(1).add(4).add(10);
     system.add(eq);
@@ -98,10 +93,10 @@ fn test_random() {
     let mut system = Modulo2System::new(size);
     for _ in 0..2*size/3 {
         let mut eq = Modulo2Equation::new(rng.gen_range(0..100),size);
-        eq.add(rng.gen_range(0..size/3) as usize).add(size as usize/3 + rng.gen_range(0..size/3) as usize).add(2*size as usize/3 + rng.gen_range(0..size/3) as usize);
+        eq.add(rng.gen_range(0..size/3)).add(size/3 + rng.gen_range(0..size/3)).add(2*size/3 + rng.gen_range(0..size/3));
         system.add(eq);
     }
-    let mut solution = vec![0;size as usize];
+    let mut solution = vec![0;size];
     assert!(system.lazy_gaussian_elimination_constructor(&mut solution));
     assert!(system.check(&solution));
 }
@@ -109,14 +104,13 @@ fn test_random() {
 #[test]
 fn test_random_2() {
     let mut rng = rand::thread_rng();
-    for size in vec![10, 100, 1000, 10000 as usize] {
-        let mut system = Modulo2System::new(size as u32);
+    for size in vec![10, 100, 1000, 10000] {
+        let mut system = Modulo2System::new(size);
         let mut edge = vec![HashSet::<usize>::new(); 2*size/3];
         let mut x;
         let mut v;
         let mut w;
 
-        //Questi due for sono accorpabili. Perchè tenuti separati? Ragioni di benchamrking/profiling?
         for i in 0..edge.len() {
             'gen_edge: loop {
                 x = rng.gen_range(0..size);
@@ -135,8 +129,8 @@ fn test_random_2() {
         }
 
         for e in edge.iter() {
-            let mut eq = Modulo2Equation::new(rng.gen_range(0..100),size as u32);
-            e.iter().for_each(|&x| {eq.add(x as usize);});
+            let mut eq = Modulo2Equation::new(rng.gen_range(0..100), size);
+            e.iter().for_each(|&x| {eq.add(x);});
             system.add(eq);
         }
 
