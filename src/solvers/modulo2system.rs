@@ -1,9 +1,3 @@
-/* TODO
-Chiarire convenzione variabili del sistema: usize o u32?
-Rendere idiomatico + uso di pattern (result ecc...)
-Documentazione
-Chiarire istruzione add */
-
 use crate::bits::bit_vec::BitVec;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -18,7 +12,7 @@ pub struct Modulo2Equation {
 
 #[derive(Debug)]
 pub struct Modulo2System {
-    num_vars: u32, //per ora u32 per il limite di valore. Anche se solitamente per le dimensioni si usa usize
+    num_vars: u32,
     equations: Vec<Rc<RefCell<Modulo2Equation>>>,
 }
 
@@ -32,12 +26,6 @@ impl Modulo2Equation {
         }
     }
 
-    /*TODO: gestire visibilità (inizialmete era protected, usata nel metodo copy).
-    Va pensato il funzionamento e la necessità di scrivere qusto metodo assieme al ragionamento sulla necessità di clone.
-    Il codice è in questo metodo e clone si limita a chiamarlo. Si potrebbe pensare di spostare il codice di questo metodo in clone. (addirittura eliminarlo se come allo stato attuale viene derivato).
-    Questo è consentito solo se viene accettato il fatto che BitVec implementi clone.
-    Inoltre si può pensare di rinominare a "from"
-    */
     fn from_equation(equation: &Modulo2Equation) -> Self {
         let bv = equation.bit_vector.clone();
         Modulo2Equation {
@@ -48,22 +36,6 @@ impl Modulo2Equation {
         }
     }
 
-    //TODO: In Java è strutturato così, cioé restituisce un'istanza (che
-    //in realtà è la stessa). In questo caso cosa vogliamo fare? Lo mettiamo in
-    //stile procedura o lo lasciamo come java (stato attuale)? 
-    //C'è da dire che in Java funziona anche in stile procedura, perché sta
-    //generando un ulteriore riferimento e se vuole lo può scartare. Nel nostro
-    //caso non possiamo fare la stessa cosa, perchè non possiamo fare la giocata
-    //del doppio riferimento (di fatto consumiamo il primo). Quale delle due
-    //versioni è più adatta?
-    /*pub fn add(mut self, variable: usize) -> Self {
-        assert!(!self.bit_vector.get(variable));
-        self.bit_vector.set(variable, true);
-        self.is_empty = false;
-        self
-    }*/
-
-    //Conserva la chain (ma staccata dalla definizione)
     pub fn add(&mut self, variable: usize) -> &mut Self{
         assert!(!self.bit_vector.get(variable));
         self.bit_vector.set(variable, true);
@@ -73,21 +45,7 @@ impl Modulo2Equation {
     
 
     pub fn variables(&self) -> Vec<usize> {
-        //TODO: può avere senso? O è meglio quello esplicito sotto? Domanda a
-        //cui ci risponderà il benchmarking oppure posso pensare di iterare con
-        //enumerate sul bit vector, ma non so se la classe BitVec lo metta a
-        //disposizione (non penso) e in quel caso se vada bene che implementi
         (0..self.bit_vector.len()).filter(|&x| self.bit_vector.get(x)).collect::<Vec<_>>()
-        /*let mut variables = Vec::new();
-        for i in 0..self.bit_vector.len() {
-            if self.bit_vector.get(i) {
-                variables.push(i);
-            }
-        }
-        variables*/
-
-        //Seriamente controlliamo una ad una tutte le variabili? Non è meglio controllare sulle word del bit vector
-        //e approfonidre la questione solo se troviamo una word con almeno un bit a 1?
     }
 
     pub fn add_equation(&mut self, equation: &Modulo2Equation) {
@@ -95,7 +53,6 @@ impl Modulo2Equation {
         let x = self.bit_vector.as_mut();
         let y = equation.bit_vector.as_ref();
         let mut is_not_empty: usize = 0;
-        //TODO: non sicuro del fatto che sia idiomatico
         for i in 0..x.len(){
             x[i] ^= y[i];
             is_not_empty |= x[i];
@@ -106,11 +63,9 @@ impl Modulo2Equation {
     fn update_first_var(&mut self) {
         if self.is_empty {self.first_var = usize::MAX;}
         else {
-            //TODO non sicuro del fatto che sia idiomatico
             let mut i = 0;
             let bits = self.bit_vector.as_ref();
             while bits[i]==0 {i+=1};
-            //Mi sembra possa essere scritto meglio
             self.first_var = i*usize::BITS as usize + bits[i].trailing_zeros() as usize;
         }
     }
@@ -125,7 +80,6 @@ impl Modulo2Equation {
 
     fn scalar_product(bits: &[usize], values: &Vec<u64>) -> u64 {
         let mut sum: u64 = 0;
-        //TODO: non sicuro del fatto che sia idiomatico
         for i in 0..bits.len() {
             let offset = i * usize::BITS as usize;
             let mut word = bits[i];
@@ -139,14 +93,6 @@ impl Modulo2Equation {
     }
 }
 
-/*
-Necessario solo qualora si scelga di far si che BitVec non implementi Clone (anche solo derivando)
-impl Clone for Modulo2Equation {
-    fn clone(&self) -> Self {
-        Modulo2Equation::from_equation(&self)
-    }
-}*/
-
 impl Modulo2System {
     pub fn new (num_vars: u32) -> Self {
         Modulo2System {
@@ -155,10 +101,6 @@ impl Modulo2System {
         }
     }
 
-    //Non è la classica firma di un from
-    //Due versioni: una che consuma (più veloce) e una effettua deep copy delle equazioni
-    //un po' diverso da sux4j, perchè sono obbligato a consumare (a meno di ulteriori incapsulamenti)
-    //Questa versione ottima da usare per implementare il clone
     fn from_copied (num_vars: u32, equations: &Vec<Rc<RefCell<Modulo2Equation>>>) -> Self {
         Modulo2System {
             num_vars: num_vars,
@@ -173,26 +115,19 @@ impl Modulo2System {
         }
     }
 
-    //TODO: mi sembra poco idiomatico. Restituire un Result mi pare più corretto
-    //Allo stato attuale consuma l'equazione. Può essere un problema? (non credo)
     pub fn add(&mut self, equation: Modulo2Equation) {
-        assert!(equation.bit_vector.len() == self.num_vars as usize); //Dovrebbe essere più informativo in caso si verifichi l'errore(?)
+        assert!(equation.bit_vector.len() == self.num_vars as usize);
         self.equations.push(Rc::new(RefCell::new(equation)));
     }
 
-    //TODO: mi sembra poco idiomatico. Restituire un Result mi pare più corretto
     pub fn check(&self, solution: &Vec<u64>) -> bool {
-        assert!(solution.len() == self.num_vars as usize); //Dovrebbe essere più informativo in caso si verifichi l'errore(?)
+        assert!(solution.len() == self.num_vars as usize);
         self.equations.iter().map(|eq| eq.borrow()).all(|eq|
             eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution)
         )
     }
 
-    //TODO: mi sembra poco idiomatico. Restituire un Result mi pare più corretto
-    //Gestione ripugnante. Salvate le variabili e creato il blocco perché il
-    //borrow checker non in grado di accorgersi dell'uso corretto
     fn echelon_form(&mut self) -> bool {
-        //TODO: if davvero brutto ma altrimenti salta alla sottrazione
         if self.equations.len() == 0 {return true};
         'main: for i in 0..self.equations.len()-1 {
             assert!(self.equations[i].borrow().first_var != usize::MAX);
@@ -224,22 +159,12 @@ impl Modulo2System {
         true
     }
 
-    //TODO: mi sembra poco idiomatico. Restituire un Result mi pare più corretto.
     pub fn gaussian_elimination(&mut self, solution: &mut Vec<u64>) -> bool {
-        assert!(solution.len() == self.num_vars as usize); //Dovrebbe essere più informativo in caso si verifichi l'errore(?
+        assert!(solution.len() == self.num_vars as usize);
         self.equations.iter().for_each(|x| x.borrow_mut().update_first_var());
 
         if !self.echelon_form() {return false};
 
-        //Versione fedele a sux4j
-        /*for i in (0..self.equations.len()).rev() {
-            let eq_i = self.equations[i].borrow();
-            if eq_i.is_identity() {continue};
-            assert!(solution[eq_i.first_var as usize] == 0);
-            solution[eq_i.first_var as usize] = eq_i.c ^ Modulo2Equation::scalar_product(&eq_i.bit_vector.bits(), &solution);
-        }*/
-
-        //Versione che mi sembra più idiomatica
         self.equations.iter().rev().map(|eq| eq.borrow()).filter(|eq| !eq.is_identity()).for_each(|eq| {
             assert!(solution[eq.first_var as usize] == 0);
             solution[eq.first_var as usize] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
@@ -247,49 +172,35 @@ impl Modulo2System {
         true
     }
 
-    //Costruzione solo per unit test
+    //Only for testing purposes
     pub fn lazy_gaussian_elimination_constructor(&mut self, solution: &mut Vec<u64>) -> bool {
-        //Creato per problemi di borrowing alla chiamata finale
         let num_vars = self.num_vars as usize;
-        //Sto temporaneamente specificando u32, ma può darsi che dopo possa ometterlo
-        let mut var2_eq = vec![Vec::<u32>::new(); num_vars];
+        let mut var2_eq = vec![Vec::new(); num_vars];
         let mut d = vec![0; num_vars];
         self.equations.iter().map(|e| e.borrow()).for_each(|eq|
             (0..eq.bit_vector.len()).filter(|&x| eq.bit_vector.get(x)).for_each(|x| d[x] += 1)
         );
-        //TODO In questo approccio sto già creando i vector vuoti, e qui li
-        //ridimensiono. Potrei provare a creare var2_eq vuoto ma con capacità
-        //giusta e poi pushare i vec creati con la capacità giusta. Su due piedi
-        //mi sembra un approccio ancora più efficiente
+        
         var2_eq.iter_mut().enumerate().for_each(|(i, v)| v.reserve_exact(d[i]));
 
         let mut c = vec![0; self.equations.len()];
         self.equations.iter().enumerate().for_each(|(i, e)| {
-            //TODO: qua sto facendo borrowing esplicito anziché con map, perché
-            //non so bene come gestire l'enumerate, potrebbe esserci margine di
-            //miglioramento
             let eq = e.borrow();
             c[i] = eq.c;
             (0..eq.bit_vector.len()).filter(|&x| eq.bit_vector.get(x)).for_each(|x|
-                //Qua sto sfruttando il push (la capacità è corretta quindi non
-                //fa riallocazioni). Ci sarebbe da capire se inizializzando e
-                //dopodiché sovrascrivendo (stile sux4j), sia meglio (ma dubito
-                //fortemente).
                 var2_eq[x].push(i as u32)
             );
         });
         Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars as u32).collect(), solution)
     }
 
-    //VIGNA: ma restituire il vec di soluzione (in un result) anzichè il riferimento?
     fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<u32>>, c: &Vec<u64>, variable: &Vec<u32>, solution: &mut Vec<u64>) -> bool {
         let num_equations = c.len();
         if num_equations == 0 {return true};
 
         let num_vars = var2_eq.len();
-        assert!(solution.len() == num_vars); //Dovrebbe essere più informativo in caso si verifichi l'errore(?)
+        assert!(solution.len() == num_vars);
 
-        //TODO, VIGNA: non riesco proprio a rendere opzionale la creazione del sistema sostituto
         let mut new_system = Modulo2System::new(num_vars as u32);
         let build_system = system_op.is_none();
         let system;
@@ -301,9 +212,7 @@ impl Modulo2System {
         let mut weight: Vec<u32> = vec![0; num_vars];
         let mut priority: Vec<u32> = vec![0; num_equations];
 
-        //Guardiamo tutte le varibili
         for &v in variable.iter(){
-            //Salviamo (il riferimento al)la lista delle equazioni che contengono la variabile
             let eq = &mut var2_eq[v as usize];
             if eq.len() == 0 {continue};
 
@@ -311,12 +220,9 @@ impl Modulo2System {
             let mut curr_coeff = true;
             let mut j = 0;
 
-            //Guardiamo tutte le equazioni che contengono la variabile
             for i in 1..eq.len() {
-                //Controlliamo se è nuova (ci potrebbero essere equazioni ripetute)
                 if eq[i] != curr_eq {
                     assert!(eq[i] > curr_eq);
-                    //Aggiungiamo l'equazione corrente al sistema se necessario
                     if curr_coeff {
                         if build_system { system.equations[curr_eq as usize].borrow_mut().add(v as usize); }
                         weight[v as usize] += 1;
@@ -324,7 +230,6 @@ impl Modulo2System {
                         eq[j] = curr_eq;
                         j += 1;
                     }
-                    //Aggiorniamo l'equazione corrente
                     curr_eq = eq[i];
                     curr_coeff = true;
                 } else {curr_coeff = !curr_coeff};
@@ -340,16 +245,11 @@ impl Modulo2System {
             eq.truncate(j);
         }
 
-        //VIGNA: nella versione originale viene usato un array identity (t[i] = i) 
-        //di cui non capisco l'utilità
         let mut variables = vec![0; num_vars];
         {
             let mut count = vec![0; num_equations+1];
 
-            //VIGNA: non so quanto spingere sulla versione funzionale con iteratori.
-            //t.iter().for_each(|&x| count[weight[x] as usize] += 1);
             for x in 0..num_vars {count[weight[x] as usize] += 1};
-            //(1..num_equations).for_each(|i| count[i] += count[i-1]);
             for i in 1..num_equations {count[i] += count[i-1]};
             for i in (0..num_vars).rev() {
                 count[weight[i] as usize] -= 1;
@@ -357,32 +257,22 @@ impl Modulo2System {
             }
         }
 
-        //Lista equazioni non dense con priorità 0 o 1
         let mut equation_list: Vec<u32> = (0..priority.len() as u32)
         .filter(|&x| priority[x as usize] <= 1)
         .collect();
 
-        //Equazioni dense che appartengono al sistema (fatte solo di variabili attive)
         let mut dense: Vec<Rc<RefCell<Modulo2Equation>>> = Vec::new();
-        //Equazioni che definiscono una variabile risolta in termini di variabili attive
         let mut solved: Vec<Rc<RefCell<Modulo2Equation>>> = Vec::new();
-        //Variabili risolte (parallelo a soved)
         let mut pivots: Vec<u32> = Vec::new();
 
         let equations = &system.equations;
-        //Un bit vector contenente 1 in corrispondenza di ogni variabile idle
         let mut idle_normalized = vec![usize::MAX; equations[0].borrow().bit_vector.as_ref().len()];
-
-        //A solo scopo di debug
-        let mut num_active = 0;
 
         let mut remaining = equations.len();
         while remaining != 0 {
             if equation_list.is_empty() {
-                //Rendo una nuova variabile attiva
                 let mut var = variables.pop().unwrap();
                 while weight[var as usize] == 0 {var = variables.pop().unwrap()};
-                num_active += 1;
                 idle_normalized[var as usize / usize::BITS as usize] ^= 1 << (var % usize::BITS);
                 var2_eq[var as usize].iter().for_each(|&eq|{
                     priority[eq as usize] -= 1;
@@ -391,7 +281,7 @@ impl Modulo2System {
             }
             else {
                 remaining -= 1;
-                let first = equation_list.pop().unwrap(); //An equation of weight 0 or 1
+                let first = equation_list.pop().unwrap();
                 let ref_equation = &equations[first as usize];
                 let equation = ref_equation.borrow();
 
