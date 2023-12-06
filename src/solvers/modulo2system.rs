@@ -27,7 +27,7 @@ impl Modulo2Equation {
     }
 
     pub fn add(&mut self, variable: usize) -> &mut Self{
-        assert!(!self.bit_vector.get(variable));
+        assert!(!self.bit_vector.get(variable), "Variable already in equation");
         self.bit_vector.set(variable, true);
         self.is_empty = false;
         self
@@ -99,12 +99,12 @@ impl Modulo2System {
     }
 
     pub fn add(&mut self, equation: Modulo2Equation) {
-        assert!(equation.bit_vector.len() == self.num_vars);
+        assert!(equation.bit_vector.len() == self.num_vars, "The number of variables in the equation ({}) does not match the number of variables in the system ({})", equation.bit_vector.len(), self.num_vars);
         self.equations.push(Rc::new(RefCell::new(equation)));
     }
 
     pub fn check(&self, solution: &Vec<usize>) -> bool {
-        assert!(solution.len() == self.num_vars);
+        assert!(solution.len() == self.num_vars, "The number of variables in the solution ({}) does not match the number of variables in the system ({})", solution.len(), self.num_vars);
         self.equations.iter().map(|eq| eq.borrow()).all(|eq|
             eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution)
         )
@@ -205,7 +205,7 @@ impl Modulo2System {
 
             for i in 1..eq.len() {
                 if eq[i] != curr_eq {
-                    assert!(eq[i] > curr_eq);
+                    assert!(eq[i] > curr_eq, "Equations indices do not appear in nondecreasing order");
                     if curr_coeff {
                         if build_system { system.equations[curr_eq].borrow_mut().add(v); }
                         weight[v] += 1;
