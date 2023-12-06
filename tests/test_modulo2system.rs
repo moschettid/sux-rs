@@ -27,10 +27,9 @@ fn test_one(){
     let mut eq = Modulo2Equation::new(2,2);
     eq.add(0);
     system.add(eq);
-    let mut solution = vec![0; 2];
-    let solvable = system.lazy_gaussian_elimination_constructor(&mut solution);
-    assert!(solvable);
-    assert!(system.check(&solution));
+    let solution = system.lazy_gaussian_elimination_constructor();
+    assert!(solution.is_ok());
+    assert!(system.check(&solution.unwrap()));
 }
 
 #[test]
@@ -42,9 +41,8 @@ fn test_impossible(){
     eq = Modulo2Equation::new(1,1);
     eq.add(0);
     system.add(eq);
-    let mut solution = vec![0];
-    assert!(!system.lazy_gaussian_elimination_constructor(&mut solution));
-    assert!(!system.check(&solution));
+    let solution = system.lazy_gaussian_elimination_constructor();
+    assert!(solution.is_err());
 }
 
 #[test]
@@ -54,9 +52,9 @@ fn test_redundant(){
     eq.add(0);
     system.add(eq.clone());
     system.add(eq);
-    let mut solution = vec![0];
-    assert!(system.lazy_gaussian_elimination_constructor(&mut solution));
-    assert!(system.check(&solution));
+    let solution = system.lazy_gaussian_elimination_constructor();
+    assert!(solution.is_ok());
+    assert!(system.check(&solution.unwrap()));
 }
 
 #[test]
@@ -81,9 +79,9 @@ fn test_small(){
     eq.add(2).add(6).add(10);
     system.add(eq);
 
-    let mut solution = vec![0;11];
-    assert!(system.lazy_gaussian_elimination_constructor(&mut solution));
-    assert!(system.check(&solution));
+    let solution = system.lazy_gaussian_elimination_constructor();
+    assert!(solution.is_ok());
+    assert!(system.check(&solution.unwrap()));
 }
 
 #[test]
@@ -96,9 +94,9 @@ fn test_random() {
         eq.add(rng.gen_range(0..size/3)).add(size/3 + rng.gen_range(0..size/3)).add(2*size/3 + rng.gen_range(0..size/3));
         system.add(eq);
     }
-    let mut solution = vec![0;size];
-    assert!(system.lazy_gaussian_elimination_constructor(&mut solution));
-    assert!(system.check(&solution));
+    let solution = system.lazy_gaussian_elimination_constructor();
+    assert!(solution.is_ok());
+    assert!(system.check(&solution.unwrap()));
 }
 
 #[test]
@@ -134,8 +132,8 @@ fn test_random_2() {
             system.add(eq);
         }
 
-        let mut solution = vec![0;size];
-        assert!(system.lazy_gaussian_elimination_constructor(&mut solution));
-        assert!(system.check(&solution));
+        let solution = system.lazy_gaussian_elimination_constructor();
+        assert!(solution.is_ok());
+        assert!(system.check(&solution.unwrap()));
     }
 }

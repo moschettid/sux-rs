@@ -1,6 +1,7 @@
 use crate::bits::bit_vec::BitVec;
 use std::cell::RefCell;
 use std::rc::Rc;
+use anyhow::{bail, Result};
 
 #[derive(Clone, Debug)]
 pub struct Modulo2Equation {
@@ -31,8 +32,7 @@ impl Modulo2Equation {
         self.bit_vector.set(variable, true);
         self.is_empty = false;
         self
-    }
-    
+    }  
 
     pub fn variables(&self) -> Vec<usize> {
         (0..self.bit_vector.len()).filter(|&x| self.bit_vector.get(x)).collect::<Vec<_>>()
@@ -99,21 +99,21 @@ impl Modulo2System {
     }
 
     pub fn add(&mut self, equation: Modulo2Equation) {
-        assert!(equation.bit_vector.len() == self.num_vars, "The number of variables in the equation ({}) does not match the number of variables in the system ({})", equation.bit_vector.len(), self.num_vars);
+        assert_eq!(equation.bit_vector.len(), self.num_vars, "The number of variables in the equation ({}) does not match the number of variables in the system ({})", equation.bit_vector.len(), self.num_vars);
         self.equations.push(Rc::new(RefCell::new(equation)));
     }
 
     pub fn check(&self, solution: &Vec<usize>) -> bool {
-        assert!(solution.len() == self.num_vars, "The number of variables in the solution ({}) does not match the number of variables in the system ({})", solution.len(), self.num_vars);
+        assert_eq!(solution.len(), self.num_vars, "The number of variables in the solution ({}) does not match the number of variables in the system ({})", solution.len(), self.num_vars);
         self.equations.iter().map(|eq| eq.borrow()).all(|eq|
             eq.c == Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution)
         )
     }
 
-    fn echelon_form(&mut self) -> bool {
-        if self.equations.len() == 0 {return true};
+    fn echelon_form(&mut self) -> Result<()> {
+        if self.equations.len() == 0 {return Ok(())};
         'main: for i in 0..self.equations.len()-1 {
-            assert!(self.equations[i].borrow().first_var != usize::MAX);
+            assert_ne!(self.equations[i].borrow().first_var, usize::MAX);
             for j in i+1..self.equations.len() {
                 let fvi: usize;
                 let fvj: usize;
@@ -121,12 +121,12 @@ impl Modulo2System {
                 {
                     let eq_j = self.equations[j].borrow();
                     let mut eq_i = self.equations[i].borrow_mut();
-                    assert!(eq_i.first_var != usize::MAX);
-                    assert!(eq_j.first_var != usize::MAX);
+                    assert_ne!(eq_i.first_var, usize::MAX);
+                    assert_ne!(eq_j.first_var, usize::MAX);
 
                     if eq_i.first_var == eq_j.first_var {
                         eq_i.add_equation(&eq_j);
-                        if eq_i.is_unsolvable() {return false};
+                        if eq_i.is_unsolvable() {bail!("System is unsolvable");};
                         if eq_i.is_identity() {continue 'main};
                         eq_i.update_first_var();
                     }
@@ -139,24 +139,23 @@ impl Modulo2System {
                 if fvi > fvj {self.equations.swap(i, j)};
             }
         }
-        true
+        Ok(())
     }
 
-    pub fn gaussian_elimination(&mut self, solution: &mut Vec<usize>) -> bool {
-        assert!(solution.len() == self.num_vars);
+    pub fn gaussian_elimination(&mut self) -> Result<Vec<usize>> {
+        let mut solution = vec![0; self.num_vars];
         self.equations.iter().for_each(|x| x.borrow_mut().update_first_var());
 
-        if !self.echelon_form() {return false};
+        self.echelon_form()?;
 
         self.equations.iter().rev().map(|eq| eq.borrow()).filter(|eq| !eq.is_identity()).for_each(|eq| {
-            assert!(solution[eq.first_var] == 0);
             solution[eq.first_var] = eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
         });
-        true
+        Ok(solution)
     }
 
     //Only for testing purposes
-    pub fn lazy_gaussian_elimination_constructor(&mut self, solution: &mut Vec<usize>) -> bool {
+    pub fn lazy_gaussian_elimination_constructor(&mut self) -> Result<Vec<usize>> {
         let num_vars = self.num_vars;
         let mut var2_eq = vec![Vec::new(); num_vars];
         let mut d = vec![0; num_vars];
@@ -174,15 +173,13 @@ impl Modulo2System {
                 var2_eq[x].push(i)
             );
         });
-        Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars).collect(), solution)
+        Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars).collect())
     }
 
-    fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<usize>>, c: &Vec<usize>, variable: &Vec<usize>, solution: &mut Vec<usize>) -> bool {
+    fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<usize>>, c: &Vec<usize>, variable: &Vec<usize>) -> Result<Vec<usize>> {
         let num_equations = c.len();
-        if num_equations == 0 {return true};
-
         let num_vars = var2_eq.len();
-        assert!(solution.len() == num_vars);
+        if num_equations == 0 {return Ok(vec![0; num_vars])};
 
         let mut new_system = Modulo2System::new(num_vars);
         let build_system = system_op.is_none();
@@ -269,7 +266,7 @@ impl Modulo2System {
                 let equation = ref_equation.borrow();
 
                 if priority[first] == 0 {
-                    if equation.is_unsolvable() {return false};
+                    if equation.is_unsolvable() { bail!("System is unsolvable")};
                     if equation.is_identity() {continue};
                     dense.push(Rc::clone(&ref_equation));
                 } else if priority[first] == 1 {
@@ -291,7 +288,7 @@ impl Modulo2System {
         }
 
         let mut dense_system = Modulo2System::from(num_vars, dense);
-        if !dense_system.gaussian_elimination(solution) {return false};
+        let mut solution = dense_system.gaussian_elimination()?;
 
         for i in 0..solved.len() {
             let eq = solved[i].borrow();
@@ -300,6 +297,6 @@ impl Modulo2System {
             solution[pivot] = eq.c ^ Modulo2Equation::scalar_product(eq.bit_vector.as_ref(), &solution);
         }
 
-        true
+        Ok(solution)
     }
 }
