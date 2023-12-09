@@ -176,7 +176,7 @@ impl Modulo2System {
         Modulo2System::lazy_gaussian_elimination(Some(self), &mut var2_eq, &c, &(0..num_vars).collect())
     }
 
-    fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<usize>>, c: &Vec<usize>, variable: &Vec<usize>) -> Result<Vec<usize>> {
+    pub fn lazy_gaussian_elimination(system_op: Option<&mut Modulo2System>, var2_eq: &mut Vec<Vec<usize>>, c: &Vec<usize>, variable: &Vec<usize>) -> Result<Vec<usize>> {
         let num_equations = c.len();
         let num_vars = var2_eq.len();
         if num_equations == 0 {return Ok(vec![0; num_vars])};
