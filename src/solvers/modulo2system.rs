@@ -83,6 +83,17 @@ impl Modulo2Equation {
     }
 }
 
+impl Clone for Modulo2System {
+    fn clone(&self) -> Self {
+        let mut equations = Vec::new();
+        self.equations.iter().for_each(|eq| equations.push(Rc::new(RefCell::new(eq.borrow().clone()))));
+        Modulo2System {
+            num_vars: self.num_vars,
+            equations: equations,
+        }
+    }
+}
+
 impl Modulo2System {
     pub fn new (num_vars: usize) -> Self {
         Modulo2System {
