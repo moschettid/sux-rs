@@ -117,21 +117,21 @@ impl Modulo2System {
                 let fvj: usize;
 
                 {
-                    let (si, sj) = self.equations.split_at_mut(j);
-                    let eq_i = &mut si[i];
-                    let eq_j = &mut sj[0];
+                    let eq_j = &self.equations[j] as *const Modulo2Equation;
+                    let eq_i = &mut self.equations[i];
+                    
                     assert_ne!(eq_i.first_var, usize::MAX);
-                    assert_ne!(eq_j.first_var, usize::MAX);
+                    assert_ne!(unsafe{(*eq_j).first_var}, usize::MAX);
 
-                    if eq_i.first_var == eq_j.first_var {
-                        eq_i.add_equation(&eq_j);
+                    if eq_i.first_var == unsafe{(*eq_j).first_var} {
+                        eq_i.add_equation(unsafe{&*eq_j});
                         if eq_i.is_unsolvable() {bail!("System is unsolvable");};
                         if eq_i.is_identity() {continue 'main};
                         eq_i.update_first_var();
                     }
 
                     fvi = eq_i.first_var;
-                    fvj = eq_j.first_var;
+                    fvj = unsafe{(*eq_j).first_var};
                 }
                 
 
@@ -267,21 +267,21 @@ impl Modulo2System {
                     if equation.is_identity() {continue};
                     dense.push(equation.clone()); //Pushing a clone -> I can't push index (I use this vec to build the smaller system)
                 } else if priority[first] == 1 {
-                    let equation = std::mem::replace(&mut equations[first], unsafe {std::mem::MaybeUninit::uninit().assume_init() });
+                    let equation = &equations[first];
                     let mut word_index = 0;
                     while (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]) == 0 {word_index += 1}
                     let pivot = word_index * usize::BITS as usize + (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index]).trailing_zeros() as usize;
                     pivots.push(pivot);
                     solved.push(first);
                     weight[pivot] = 0;
+                    let eqx  = &equations[first] as *const Modulo2Equation;
                     var2_eq[pivot].iter()
                     .filter(|&&eq_idx| eq_idx != first)
                     .for_each(|&eq|{
                         priority[eq] -= 1;
                         if priority[eq] == 1 {equation_list.push(eq)}
-                        equations[eq].add_equation(&equation);
+                        equations[eq].add_equation(unsafe{&*eqx});
                     });
-                    std::mem::forget(std::mem::replace(&mut equations[first], equation));
                 }
             }
         }
