@@ -1,5 +1,5 @@
 use crate::bits::bit_vec::BitVec;
-use anyhow::{bail, Result};
+use anyhow::{bail, ensure, Result};
 
 #[derive(Clone, Debug)]
 pub struct Modulo2Equation {
@@ -121,7 +121,7 @@ impl Modulo2System {
             return Ok(());
         };
         'main: for i in 0..self.equations.len() - 1 {
-            assert!(self.equations[i].first_var.is_some());
+            ensure!(self.equations[i].first_var.is_some());
             for j in i + 1..self.equations.len() {
                 let eq_j = unsafe { &*(&self.equations[j] as *const Modulo2Equation) };
                 let eq_i = &mut self.equations[i];
