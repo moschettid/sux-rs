@@ -119,7 +119,7 @@ impl Modulo2System {
     fn echelon_form(&mut self) -> Result<()> {
         if self.equations.len() == 0 {
             return Ok(());
-        };
+        }
         'main: for i in 0..self.equations.len() - 1 {
             ensure!(self.equations[i].first_var.is_some());
             for j in i + 1..self.equations.len() {
@@ -134,16 +134,16 @@ impl Modulo2System {
                     eq_i.add_equation(eq_j);
                     if eq_i.is_unsolvable() {
                         bail!("System is unsolvable");
-                    };
+                    }
                     if eq_i.is_identity() {
                         continue 'main;
-                    };
+                    }
                     eq_i.update_first_var();
                 }
 
                 if eq_i.first_var.expect("First var is None") > first_var_j {
                     self.equations.swap(i, j)
-                };
+                }
             }
         }
         Ok(())
@@ -207,7 +207,7 @@ impl Modulo2System {
         let num_vars = var2_eq.len();
         if num_equations == 0 {
             return Ok(vec![0; num_vars]);
-        };
+        }
 
         let mut new_system = Modulo2System::new(num_vars);
         let build_system = system_op.is_none();
@@ -218,7 +218,7 @@ impl Modulo2System {
                 .for_each(|&x| system.add(Modulo2Equation::new(x, num_vars)));
         } else {
             system = system_op.unwrap()
-        };
+        }
 
         let mut weight: Vec<usize> = vec![0; num_vars];
         let mut priority: Vec<usize> = vec![0; num_equations];
@@ -227,7 +227,7 @@ impl Modulo2System {
             let eq = &mut var2_eq[v];
             if eq.len() == 0 {
                 continue;
-            };
+            }
 
             let mut curr_eq = eq[0];
             let mut curr_coeff = true;
@@ -252,7 +252,7 @@ impl Modulo2System {
                     curr_coeff = true;
                 } else {
                     curr_coeff = !curr_coeff
-                };
+                }
             }
 
             if curr_coeff {
@@ -315,13 +315,13 @@ impl Modulo2System {
                     let equation = &equations[first];
                     if equation.is_unsolvable() {
                         bail!("System is unsolvable")
-                    };
+                    }
                     if equation.is_identity() {
                         continue;
-                    };
+                    }
                     dense.push(equation.clone()); //Pushing a clone -> I can't push index (I use this vec to build the smaller system)
                 } else if priority[first] == 1 {
-                    let equation = &equations[first];
+                    let equation = unsafe { &*(&equations[first] as *const Modulo2Equation) };
                     let mut word_index = 0;
                     while (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index])
                         == 0
@@ -334,7 +334,6 @@ impl Modulo2System {
                     pivots.push(pivot);
                     solved.push(first);
                     weight[pivot] = 0;
-                    let eqx = &equations[first] as *const Modulo2Equation;
                     var2_eq[pivot]
                         .iter()
                         .filter(|&&eq_idx| eq_idx != first)
@@ -343,7 +342,7 @@ impl Modulo2System {
                             if priority[eq] == 1 {
                                 equation_list.push(eq)
                             }
-                            equations[eq].add_equation(unsafe { &*eqx });
+                            equations[eq].add_equation(equation);
                         });
                 }
             }
