@@ -1,12 +1,12 @@
 use crate::bits::bit_vec::BitVec;
 use anyhow::{bail, ensure, Result};
+use std::cmp::min;
 
 #[derive(Clone, Debug)]
 pub struct Modulo2Equation {
     bit_vector: BitVec,
     c: usize,
     first_var: Option<usize>,
-    is_empty: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -21,7 +21,6 @@ impl Modulo2Equation {
             bit_vector: BitVec::new(num_vars),
             c: c,
             first_var: None,
-            is_empty: true,
         }
     }
 
@@ -31,7 +30,7 @@ impl Modulo2Equation {
             "Variable already in equation"
         );
         self.bit_vector.set(variable, true);
-        self.is_empty = false;
+        self.first_var = Some(min(self.first_var.unwrap_or(variable), variable));
         self
     }
 
@@ -45,33 +44,21 @@ impl Modulo2Equation {
         self.c ^= equation.c;
         let x = self.bit_vector.as_mut();
         let y = equation.bit_vector.as_ref();
-        let mut is_not_empty = 0;
+        self.first_var = None;
         for i in 0..x.len() {
             x[i] ^= y[i];
-            is_not_empty |= x[i];
-        }
-        self.is_empty = is_not_empty == 0;
-    }
-
-    fn update_first_var(&mut self) {
-        if self.is_empty {
-            self.first_var = None;
-        } else {
-            let mut i = 0;
-            let bits = self.bit_vector.as_ref();
-            while bits[i] == 0 {
-                i += 1
+            if self.first_var.is_none() && x[i] != 0 {
+                self.first_var = Some(i * usize::BITS as usize + x[i].trailing_zeros() as usize);
             }
-            self.first_var = Some(i * usize::BITS as usize + bits[i].trailing_zeros() as usize);
         }
     }
 
     fn is_unsolvable(&self) -> bool {
-        self.is_empty && self.c != 0
+        self.first_var.is_none() && self.c != 0
     }
 
     fn is_identity(&self) -> bool {
-        self.is_empty && self.c == 0
+        self.first_var.is_none() && self.c == 0
     }
 
     fn scalar_product(bits: &[usize], values: &Vec<usize>) -> usize {
@@ -138,7 +125,6 @@ impl Modulo2System {
                     if eq_i.is_identity() {
                         continue 'main;
                     }
-                    eq_i.update_first_var();
                 }
 
                 if eq_i.first_var.expect("First var is None") > first_var_j {
@@ -151,7 +137,6 @@ impl Modulo2System {
 
     pub fn gaussian_elimination(&mut self) -> Result<Vec<usize>> {
         let mut solution = vec![0; self.num_vars];
-        self.equations.iter_mut().for_each(|x| x.update_first_var());
 
         self.echelon_form()?;
 
