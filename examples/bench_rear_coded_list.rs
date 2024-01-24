@@ -7,11 +7,11 @@
 
 use clap::Parser;
 use dsi_progress_logger::*;
+use lender::prelude::*;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
 use std::hint::black_box;
-use std::io::prelude::*;
 use sux::prelude::*;
 
 #[derive(Parser, Debug)]
@@ -42,15 +42,21 @@ pub fn main() {
     let mut pl = ProgressLogger::default();
     pl.display_memory(true).item_name("line");
 
-    let lines = std::io::BufReader::new(std::fs::File::open(&args.file_path).unwrap())
-        .lines()
-        .map(|line| line.unwrap());
+    let lines = std::io::BufReader::new(std::fs::File::open(&args.file_path).unwrap());
 
     pl.start("Inserting...");
-    for line in lines {
-        rcab.push(line);
-        pl.light_update();
-    }
+
+    for_!(result in  LineLender::new(lines) {
+        match result {
+            Ok(line) => {
+                rcab.push(line);
+                pl.light_update();
+            }
+            Err(e) => {
+                panic!("Error reading input: {}", e);
+            }
+        }
+    });
 
     pl.done();
 
