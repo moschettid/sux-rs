@@ -193,9 +193,9 @@ impl<W: Word> BitFieldVec<W, Vec<W>> {
     ///
     /// Returns an error if the bit width of the values in `slice` is larger than
     /// `W::BITS`.
-    pub fn from_slice<SW: Word>(slice: &impl BitFieldSlice<SW>) -> Result<Self>
+    pub fn from_slice<SW>(slice: &impl BitFieldSlice<SW>) -> Result<Self>
     where
-        SW: CastableInto<W>,
+        SW: Word + CastableInto<W>,
     {
         let mut max_len: usize = 0;
         for i in 0..slice.len() {
@@ -217,6 +217,7 @@ impl<W: Word> BitFieldVec<W, Vec<W>> {
         Ok(result)
     }
 
+    /// Add a value at the end of the BitFieldVec
     pub fn push(&mut self, value: W) {
         panic_if_value!(value, self.mask, self.bit_width);
         if (self.len + 1) * self.bit_width > self.data.len() * W::BITS {
@@ -228,12 +229,7 @@ impl<W: Word> BitFieldVec<W, Vec<W>> {
         self.len += 1;
     }
 
-    pub fn extend(&mut self, i: impl IntoIterator<Item = W>) {
-        for value in i {
-            self.push(value);
-        }
-    }
-
+    /// Truncate or exted with `value` the BitFieldVec
     pub fn resize(&mut self, new_len: usize, value: W) {
         panic_if_value!(value, self.mask, self.bit_width);
         if new_len > self.len {
@@ -248,6 +244,26 @@ impl<W: Word> BitFieldVec<W, Vec<W>> {
             }
         }
         self.len = new_len;
+    }
+
+    /// Remove and return a value from the end of the [`BitFieldVec`].
+    /// Return None if the [`BitFieldVec`] is empty.
+    pub fn pop(&mut self) -> Option<W> {
+        if self.len == 0 {
+            return None;
+        }
+        let value = self.get(self.len - 1);
+        self.len -= 1;
+        Some(value)
+    }
+}
+
+impl<W: Word> core::iter::Extend<W> for BitFieldVec<W, Vec<W>> {
+    /// Add values from
+    fn extend<T: IntoIterator<Item = W>>(&mut self, iter: T) {
+        for value in iter {
+            self.push(value);
+        }
     }
 }
 

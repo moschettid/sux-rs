@@ -12,9 +12,7 @@ use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::Rng;
 use rand::SeedableRng;
-use sux::prelude::BitFieldVec;
 use sux::prelude::*;
-use sux::traits::bit_field_slice::Word;
 
 #[test]
 fn test_bit_field_vec() {
@@ -192,4 +190,25 @@ fn test_resize() {
         assert_eq!(c.get(i), 2);
     }
     assert_eq!(c.len(), 50);
+}
+
+#[test]
+fn test_pop() {
+    use sux::traits::bit_field_slice::BitFieldSlice;
+
+    let mut c = BitFieldVec::new(12, 0);
+    for i in 0..1000 {
+        c.push(i);
+    }
+    for i in (500..1000).rev() {
+        assert_eq!(c.pop(), Some(i));
+    }
+    for i in 0..500 {
+        assert_eq!(c.get(i), i);
+    }
+    for i in (0..500).rev() {
+        assert_eq!(c.pop(), Some(i));
+    }
+    assert_eq!(c.pop(), None);
+    assert_eq!(c.pop(), None);
 }
