@@ -82,13 +82,22 @@ impl<B: AsRef<[usize]>> Index<usize> for BitVec<B> {
 }
 
 impl BitVec<Vec<usize>> {
-    /// Create a new bit vector of length `len`.
+    /// Creates a new bit vector of length `len` initialized to `false`.
     pub fn new(len: usize) -> Self {
+        Self::with_value(len, false)
+    }
+
+    /// Creates a new bit vector of length `len` initialized to `value`.
+    pub fn with_value(len: usize, value: bool) -> Self {
         let n_of_words = (len + BITS - 1) / BITS;
-        Self {
-            data: vec![0; n_of_words],
-            len,
+        let extra_bits = (n_of_words * BITS) - len;
+        let word_value = if value { !0 } else { 0 };
+        let mut data = vec![word_value; n_of_words];
+        if extra_bits > 0 {
+            let last_word_value = word_value >> extra_bits;
+            data[n_of_words - 1] = last_word_value;
         }
+        Self { data, len }
     }
 
     pub fn capacity(&self) -> usize {
@@ -130,13 +139,24 @@ impl BitVec<Vec<usize>> {
 }
 
 impl AtomicBitVec<Vec<AtomicUsize>> {
-    /// Create a new atomic bit vector of length `len`.
+    /// Creates a new atomic bit vector of length `len` initialized to `false`.
     pub fn new(len: usize) -> Self {
+        Self::with_value(len, false)
+    }
+
+    /// Creates a new atomic bit vector of length `len` initialized to `value`.
+    pub fn with_value(len: usize, value: bool) -> Self {
         let n_of_words = (len + BITS - 1) / BITS;
-        Self {
-            data: (0..n_of_words).map(|_| AtomicUsize::new(0)).collect(),
-            len,
+        let extra_bits = (n_of_words * BITS) - len;
+        let word_value = if value { !0 } else { 0 };
+        let mut data = (0..n_of_words)
+            .map(|_| AtomicUsize::new(word_value))
+            .collect::<Vec<_>>();
+        if extra_bits > 0 {
+            let last_word_value = word_value >> extra_bits;
+            data[n_of_words - 1] = AtomicUsize::new(last_word_value);
         }
+        Self { data, len }
     }
 }
 
@@ -221,6 +241,18 @@ impl<B: AsRef<[usize]>> BitVec<B> {
             data: self.data,
             len: self.len,
             number_of_ones,
+        }
+    }
+}
+
+impl<B: AsRef<[AtomicUsize]>> Index<usize> for AtomicBitVec<B> {
+    type Output = bool;
+
+    /// Shorthand for [`Self::get`] using [`Ordering::Relaxed`].
+    fn index(&self, index: usize) -> &Self::Output {
+        match self.get(index, Ordering::Relaxed) {
+            false => &false,
+            true => &true,
         }
     }
 }
@@ -327,6 +359,11 @@ impl<B: AsRef<[AtomicUsize]>> AtomicBitVec<B> {
         unsafe { self.set_unchecked(index, value, order) }
     }
 
+    pub fn swap(&self, index: usize, value: bool, order: Ordering) -> bool {
+        panic_if_out_of_bounds!(index, self.len);
+        unsafe { self.swap_unchecked(index, value, order) }
+    }
+
     unsafe fn get_unchecked(&self, index: usize, order: Ordering) -> bool {
         let word_index = index / BITS;
         let data: &[AtomicUsize] = self.data.as_ref();
@@ -347,6 +384,23 @@ impl<B: AsRef<[AtomicUsize]>> AtomicBitVec<B> {
             data.get_unchecked(word_index)
                 .fetch_and(!(1 << bit_index), order);
         }
+    }
+
+    #[inline(always)]
+    unsafe fn swap_unchecked(&self, index: usize, value: bool, order: Ordering) -> bool {
+        let word_index = index / BITS;
+        let bit_index = index % BITS;
+        let data: &[AtomicUsize] = self.data.as_ref();
+
+        let old_word = if value {
+            data.get_unchecked(word_index)
+                .fetch_or(1 << bit_index, order)
+        } else {
+            data.get_unchecked(word_index)
+                .fetch_and(!(1 << bit_index), order)
+        };
+
+        (old_word >> (bit_index)) & 1 != 0
     }
 
     pub fn fill(&mut self, value: bool, order: Ordering) {
@@ -801,6 +855,7 @@ impl FromIterator<bool> for BitVec<Vec<usize>> {
 }
 
 /// An iterator over the ones in an underlying storage.
+#[derive(Debug, Clone, MemDbg, MemSize)]
 pub struct OnesIterator<B> {
     mem_words: B,
     word_idx: usize,
@@ -850,7 +905,7 @@ impl<B: AsRef<[usize]>> Iterator for OnesIterator<B> {
 }
 
 // Iterates over the bits as booleans.
-
+#[derive(Debug, Clone, MemDbg, MemSize)]
 pub struct BitIterator<'a, B> {
     mem_words: &'a B,
     next_bit_pos: usize,

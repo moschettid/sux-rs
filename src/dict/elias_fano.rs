@@ -44,6 +44,7 @@ use mem_dbg::*;
 /// A sequential builder for [`EliasFano`].
 ///
 /// After creating an instance, you can use [`EliasFanoBuilder::push`] to add new values.
+#[derive(Debug, Clone, MemDbg, MemSize)]
 pub struct EliasFanoBuilder {
     u: usize,
     n: usize,
@@ -56,7 +57,7 @@ pub struct EliasFanoBuilder {
 
 impl EliasFanoBuilder {
     /// Create a builder for an [`EliasFano`] containing
-    /// `n` numbers smaller than `u`.
+    /// `n` numbers smaller than or equal to `u`.
     pub fn new(n: usize, u: usize) -> Self {
         let l = if u >= n {
             (u as f64 / n as f64).log2().floor() as usize
@@ -84,8 +85,8 @@ impl EliasFanoBuilder {
         if self.count == self.n {
             bail!("Too many values");
         }
-        if value >= self.u {
-            bail!("Value too large: {} >= {}", value, self.u);
+        if value > self.u {
+            bail!("Value too large: {} > {}", value, self.u);
         }
         if value < self.last_value {
             bail!(
@@ -102,7 +103,7 @@ impl EliasFanoBuilder {
 
     /// # Safety
     ///
-    /// Values passed to this function must be smaller than `u` and must be monotone.
+    /// Values passed to this function must be smaller than or equal `u` and must be monotone.
     /// Moreover, the function should not be called more than `n` times.
     pub unsafe fn push_unchecked(&mut self, value: usize) {
         let low = value & ((1 << self.l) - 1);
@@ -132,6 +133,7 @@ impl EliasFanoBuilder {
 /// to set the values concurrently. However, this operation is inherently
 /// unsafe as no check is performed on the provided data (e.g., duplicate
 /// indices and lack of monotonicity are not detected).
+#[derive(MemDbg, MemSize)]
 pub struct EliasFanoConcurrentBuilder {
     u: usize,
     n: usize,
@@ -142,7 +144,7 @@ pub struct EliasFanoConcurrentBuilder {
 
 impl EliasFanoConcurrentBuilder {
     /// Create a builder for an [`EliasFano`] containing
-    /// `n` numbers smaller than `u`.
+    /// `n` numbers smaller than or equal to `u`.
     pub fn new(n: usize, u: usize) -> Self {
         let l = if u >= n {
             (u as f64 / n as f64).log2().floor() as usize
@@ -163,7 +165,7 @@ impl EliasFanoConcurrentBuilder {
     ///
     /// # Safety
     /// - All indices must be distinct.
-    /// - All values must be smaller than `u`.
+    /// - All values must be smaller than or equal to `u`.
     /// - All indices must be smaller than `n`.
     /// - You must call this function exactly `n` times.
     pub unsafe fn set(&self, index: usize, value: usize, order: Ordering) {
@@ -252,7 +254,11 @@ impl<H, L> EliasFano<H, L> {
     }
 }
 
-impl<H: AsRef<[usize]> + Select, L: BitFieldSlice<usize>> IndexedDict for EliasFano<H, L> {
+impl<H: AsRef<[usize]> + Select + SelectZero, L: BitFieldSlice<usize>> IndexedDict
+    for EliasFano<H, L>
+where
+    for<'b> &'b L: IntoUncheckedIterator<Item = usize>,
+{
     type Output = usize;
     type Input = usize;
 
@@ -266,6 +272,105 @@ impl<H: AsRef<[usize]> + Select, L: BitFieldSlice<usize>> IndexedDict for EliasF
         let high_bits = self.high_bits.select_unchecked(index) - index;
         let low_bits = self.low_bits.get_unchecked(index);
         (high_bits << self.l) | low_bits
+    }
+
+    fn contains(&self, value: &Self::Input) -> bool {
+        if *value > self.u {
+            return false;
+        }
+        let zeros_to_skip = *value >> self.l;
+        let bit_pos = if zeros_to_skip == 0 {
+            0
+        } else {
+            self.high_bits.select_zero(zeros_to_skip - 1).unwrap() + 1
+        };
+
+        let mut rank = bit_pos - zeros_to_skip;
+        let mut iter = self.low_bits.into_unchecked_iter_from(rank);
+        let mut word_idx = bit_pos / (usize::BITS as usize);
+        let bits_to_clean = bit_pos % (usize::BITS as usize);
+
+        // SAFETY: we are certainly iterating within the length of the arrays
+        // and within the range of the iterator because there is a successor for sure.
+
+        let mut window = unsafe { *self.high_bits.as_ref().get_unchecked(word_idx) }
+            & (usize::MAX << bits_to_clean);
+
+        loop {
+            while window == 0 {
+                word_idx += 1;
+                if word_idx >= self.high_bits.as_ref().len() {
+                    return false;
+                }
+                window = unsafe { *self.high_bits.as_ref().get_unchecked(word_idx) };
+            }
+            // find the lowest bit set index in the word
+            let bit_idx = window.trailing_zeros() as usize;
+            // compute the global bit index
+            let high_bits = (word_idx * usize::BITS as usize) + bit_idx - rank;
+            // compose the value
+            let res = (high_bits << self.l) | unsafe { iter.next_unchecked() };
+
+            if res == *value {
+                return true;
+            }
+            if res > *value {
+                return false;
+            }
+
+            // clear the lowest bit set
+            window &= window - 1;
+            rank += 1;
+        }
+    }
+
+    fn index_of(&self, value: &Self::Input) -> Option<usize> {
+        if *value > self.u {
+            return None;
+        }
+        let zeros_to_skip = *value >> self.l;
+        let bit_pos = if zeros_to_skip == 0 {
+            0
+        } else {
+            self.high_bits.select_zero(zeros_to_skip - 1).unwrap() + 1
+        };
+
+        let mut rank = bit_pos - zeros_to_skip;
+        let mut iter = self.low_bits.into_unchecked_iter_from(rank);
+        let mut word_idx = bit_pos / (usize::BITS as usize);
+        let bits_to_clean = bit_pos % (usize::BITS as usize);
+
+        // SAFETY: we are certainly iterating within the length of the arrays
+        // and within the range of the iterator because there is a successor for sure.
+
+        let mut window = unsafe { *self.high_bits.as_ref().get_unchecked(word_idx) }
+            & (usize::MAX << bits_to_clean);
+
+        loop {
+            while window == 0 {
+                word_idx += 1;
+                if word_idx >= self.high_bits.as_ref().len() {
+                    return None;
+                }
+                window = unsafe { *self.high_bits.as_ref().get_unchecked(word_idx) };
+            }
+            // find the lowest bit set index in the word
+            let bit_idx = window.trailing_zeros() as usize;
+            // compute the global bit index
+            let high_bits = (word_idx * usize::BITS as usize) + bit_idx - rank;
+            // compose the value
+            let res = (high_bits << self.l) | unsafe { iter.next_unchecked() };
+            if res == *value {
+                return Some(rank);
+            }
+            if res > *value {
+                return None;
+            }
+
+            // clear the lowest bit set
+            window &= window - 1;
+            rank += 1;
+        }
     }
 }
 
@@ -309,6 +414,7 @@ where
 }
 
 /// An iterator streaming over the Elias--Fano representation.
+#[derive(MemDbg, MemSize)]
 pub struct EliasFanoIterator<'a, H: AsRef<[usize]>, L: BitFieldSlice<usize>>
 where
     for<'b> &'b L: IntoUncheckedIterator<Item = usize>,
@@ -477,6 +583,7 @@ where
 impl<H: SelectZero + Select + AsRef<[usize]>, L: BitFieldSlice<usize>> Pred for EliasFano<H, L>
 where
     for<'b> &'b L: IntoReverseUncheckedIterator<Item = usize>,
+    for<'b> &'b L: IntoUncheckedIterator<Item = usize>,
 {
     unsafe fn pred_unchecked<const STRICT: bool>(
         &self,

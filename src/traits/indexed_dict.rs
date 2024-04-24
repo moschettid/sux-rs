@@ -54,17 +54,20 @@ pub trait IndexedDict {
     /// `index` must be in [0..[len](`IndexedDict::len`)). No bounds checking is performed.
     unsafe fn get_unchecked(&self, index: usize) -> Self::Output;
 
-    /// Return true if the dictionary contains the given value.
+    /// Return the index of the given value if the dictionary contains it and
+    /// `None` otherwise.
     ///
     /// The default implementations just checks iteratively
     /// if the value is equal to any of the values in the dictionary.
+    fn index_of(&self, value: &Self::Input) -> Option<usize> {
+        (0..self.len()).find(|&i| self.get(i) == *value)
+    }
+
+    /// Return true if the dictionary contains the given value.
+    ///
+    /// The default implementations just uses [`index_of`](`IndexedDict::index_of`).
     fn contains(&self, value: &Self::Input) -> bool {
-        for i in 0..self.len() {
-            if self.get(i) == *value {
-                return true;
-            }
-        }
-        false
+        self.index_of(value).is_some()
     }
 
     /// Return the length (number of items) of the dictionary.
@@ -203,7 +206,7 @@ where
     }
 }
 
-impl<T: Succ> Succ for &T 
+impl<T: Succ> Succ for &T
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
@@ -217,7 +220,7 @@ where
     fn succ_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::succ_strict(*self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn succ_unchecked<const STRICT: bool>(
         &self,
@@ -227,12 +230,11 @@ where
     }
 }
 
-impl<T: Succ> Succ for &mut T 
+impl<T: Succ> Succ for &mut T
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
 {
-
     #[inline(always)]
     fn succ(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::succ(*self, value)
@@ -242,7 +244,7 @@ where
     fn succ_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::succ_strict(*self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn succ_unchecked<const STRICT: bool>(
         &self,
@@ -252,12 +254,11 @@ where
     }
 }
 
-impl<T: Succ> Succ for Box<T> 
+impl<T: Succ> Succ for Box<T>
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
 {
-
     #[inline(always)]
     fn succ(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::succ(self, value)
@@ -267,7 +268,7 @@ where
     fn succ_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::succ_strict(self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn succ_unchecked<const STRICT: bool>(
         &self,
@@ -277,12 +278,11 @@ where
     }
 }
 
-impl<T: Pred> Pred for &T 
+impl<T: Pred> Pred for &T
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
 {
-
     #[inline(always)]
     fn pred(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred(*self, value)
@@ -292,7 +292,7 @@ where
     fn pred_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred_strict(*self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn pred_unchecked<const STRICT: bool>(
         &self,
@@ -302,12 +302,11 @@ where
     }
 }
 
-impl<T: Pred> Pred for &mut T 
+impl<T: Pred> Pred for &mut T
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
 {
-
     #[inline(always)]
     fn pred(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred(*self, value)
@@ -317,7 +316,7 @@ where
     fn pred_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred_strict(*self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn pred_unchecked<const STRICT: bool>(
         &self,
@@ -327,12 +326,11 @@ where
     }
 }
 
-impl<T: Pred> Pred for Box<T> 
+impl<T: Pred> Pred for Box<T>
 where
     T::Input: PartialOrd<T::Output> + PartialOrd,
     T::Output: PartialOrd<T::Input> + PartialOrd,
 {
-
     #[inline(always)]
     fn pred(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred(self, value)
@@ -342,7 +340,7 @@ where
     fn pred_strict(&self, value: &Self::Input) -> Option<(usize, Self::Output)> {
         T::pred_strict(self, value)
     }
-    
+
     #[inline(always)]
     unsafe fn pred_unchecked<const STRICT: bool>(
         &self,
