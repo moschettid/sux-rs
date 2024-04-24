@@ -1,6 +1,8 @@
 use crate::bits::bit_vec::BitVec;
 use anyhow::{bail, ensure, Result};
 use std::cmp::min;
+#[cfg(feature = "time_log")]
+use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct Modulo2Equation {
@@ -205,6 +207,14 @@ impl Modulo2System {
             system = system_op.unwrap()
         }
 
+        #[cfg(feature = "time_log")]
+        let mut measures = Vec::new();
+        #[cfg(feature = "time_log")]
+        {
+            measures.push(num_equations as u128);
+            measures.push(system.equations[0].variables().len() as u128); //Number of variables per equation
+        }
+
         let mut weight: Vec<usize> = vec![0; num_vars];
         let mut priority: Vec<usize> = vec![0; num_equations];
 
@@ -252,6 +262,9 @@ impl Modulo2System {
             eq.truncate(j);
         }
 
+        #[cfg(feature = "time_log")]
+        let mut start = Instant::now();
+
         let mut variables = vec![0; num_vars];
         {
             let mut count = vec![0; num_equations + 1];
@@ -259,7 +272,7 @@ impl Modulo2System {
             for x in 0..num_vars {
                 count[weight[x]] += 1
             }
-            for i in 1..num_equations {
+            for i in 1..count.len() {
                 count[i] += count[i - 1]
             }
             for i in (0..num_vars).rev() {
@@ -268,15 +281,18 @@ impl Modulo2System {
             }
         }
 
-        let mut equation_list: Vec<usize> =
-            (0..priority.len()).filter(|&x| priority[x] <= 1).collect();
+        let mut equation_list: Vec<usize> = (0..priority.len())
+            .rev()
+            .filter(|&x| priority[x] <= 1)
+            .collect();
 
         let mut dense: Vec<Modulo2Equation> = Vec::new();
         let mut solved: Vec<usize> = Vec::new();
         let mut pivots: Vec<usize> = Vec::new();
 
         let equations = &mut system.equations;
-        let mut idle_normalized = vec![usize::MAX; num_vars];
+        let mut idle_normalized =
+            vec![usize::MAX; (num_vars + usize::BITS as usize - 1) / usize::BITS as usize];
 
         let mut remaining = equations.len();
         while remaining != 0 {
@@ -333,8 +349,20 @@ impl Modulo2System {
             }
         }
 
+        #[cfg(feature = "time_log")]
+        {
+            measures.push(start.elapsed().as_millis());
+            start = Instant::now();
+        }
+
         let mut dense_system = Modulo2System::from(num_vars, dense);
         let mut solution = dense_system.gaussian_elimination()?;
+
+        #[cfg(feature = "time_log")]
+        {
+            measures.push(start.elapsed().as_millis());
+            start = Instant::now();
+        }
 
         for i in 0..solved.len() {
             let eq = &equations[solved[i]];
@@ -342,6 +370,24 @@ impl Modulo2System {
             assert!(solution[pivot] == 0);
             solution[pivot] =
                 eq.c ^ Modulo2Equation::scalar_product(eq.bit_vector.as_ref(), &solution);
+        }
+
+        #[cfg(feature = "time_log")]
+        {
+            measures.push(start.elapsed().as_millis());
+            measures.push(measures[2] + measures[3] + measures[4]);
+            /*println!("Setting up sparse equations: {:?}ms", measures[2]);
+            println!("Solving dense system: {:?}ms", measures[3]);
+            println!("Computing solution: {:?}ms", measures[4]);*/
+
+            let mut measures_csv = measures
+                .iter()
+                .map(|&measure| measure.to_string())
+                .collect::<Vec<String>>();
+            measures_csv.push(
+                (dense_system.equations.len() as f64 / system.equations.len() as f64).to_string(),
+            );
+            println!("{}", measures_csv.join(","));
         }
 
         Ok(solution)
