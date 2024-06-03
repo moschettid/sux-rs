@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use sux::solvers::modulo2system::Modulo2Equation;
 use sux::solvers::modulo2system::Modulo2System;
 
-static DELTAS: [f64; 5] = [0.0, 0.0, 0.0, 1.1, 1.03];
+static DELTAS: [f64; 5] = [0.0, 0.0, 0.0, 1.09, 1.025];
 
 fn splitmix64_next(seed: &mut usize) -> usize {
     *seed = seed.wrapping_add(0x9e3779b97f4a7c15);
@@ -74,7 +74,7 @@ fn gen_system(
             edge.insert(x);
         }
 
-        //TODO incorporabile nel for precedente
+        //TODO: incorporabile nel for precedente
         c[i] = gen_bounded(rng, 100);
         let mut eq = Modulo2Equation::new(c[i], n_vars);
         for v in edge.iter() {
@@ -87,37 +87,33 @@ fn gen_system(
 }
 
 pub fn main() {
-    let mut rng = init_rng_from_u64(0);
+    for _ in 0..3 {
+        let mut rng = init_rng_from_u64(0);
+        for n_eqs in [10000, 20000, 30000, 40000] {
+            for n_vars_per_eq in [3, 4] {
+                loop {
+                    let mut system;
+                    let mut var2_eq;
+                    let n_vars = (n_eqs as f64 * DELTAS[n_vars_per_eq]).ceil() as usize;
+                    let c;
+                    (system, var2_eq, c) = gen_system(&mut rng, n_eqs, n_vars_per_eq);
 
-    for n_eqs in [100, 1000, 30000] {
-        for n_vars_per_eq in [3, 4] {
-            loop {
-                let mut system;
-                let mut var2_eq;
-                let n_vars = (n_eqs as f64 * DELTAS[n_vars_per_eq]).ceil() as usize;
-                let c;
-                (system, var2_eq, c) = gen_system(&mut rng, n_eqs, n_vars_per_eq);
+                    let vars = (0..n_vars).collect();
 
-                let vars = (0..n_vars).collect();
-
-                println!(
-                    "Lazy gaussian elimination w/ {} equations and {} vars",
-                    n_eqs, n_vars_per_eq
-                );
-                if let Ok(result) = Modulo2System::lazy_gaussian_elimination(
-                    Some(&mut system),
-                    &mut var2_eq,
-                    &c,
-                    &vars,
-                ) {
-                    if !system.check(&result) {
-                        println!("Error: solution is not valid");
+                    if let Ok(result) = Modulo2System::lazy_gaussian_elimination(
+                        Some(&mut system),
+                        &mut var2_eq,
+                        &c,
+                        &vars,
+                    ) {
+                        if !system.check(&result) {
+                            println!("Error: solution is not valid");
+                        }
+                        break;
                     }
-                    println!("Result: {}", result[0]);
-                    println!();
-                    break;
                 }
             }
         }
+        println!();
     }
 }
