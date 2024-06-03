@@ -8,7 +8,7 @@ use std::time::Instant;
 pub struct Modulo2Equation {
     bit_vector: BitVec,
     c: usize,
-    first_var: Option<usize>,
+    first_var: Option<u32>,
 }
 
 #[derive(Clone, Debug)]
@@ -32,6 +32,7 @@ impl Modulo2Equation {
             "Variable already in equation"
         );
         self.bit_vector.set(variable, true);
+        let variable = variable as u32;
         self.first_var = Some(min(self.first_var.unwrap_or(variable), variable));
         self
     }
@@ -49,8 +50,11 @@ impl Modulo2Equation {
         self.first_var = None;
         for i in 0..x.len() {
             x[i] ^= y[i];
-            if self.first_var.is_none() && x[i] != 0 {
-                self.first_var = Some(i * usize::BITS as usize + x[i].trailing_zeros() as usize);
+        }
+        for i in 0..x.len() {
+            if x[i] != 0 {
+                self.first_var = Some(i as u32 * usize::BITS + x[i].trailing_zeros());
+                break;
             }
         }
     }
@@ -147,7 +151,7 @@ impl Modulo2System {
             .rev()
             .filter(|eq| !eq.is_identity())
             .for_each(|eq| {
-                solution[eq.first_var.expect("First variable is None")] =
+                solution[eq.first_var.expect("First variable is None") as usize] =
                     eq.c ^ Modulo2Equation::scalar_product(&eq.bit_vector.as_ref(), &solution);
             });
         Ok(solution)
