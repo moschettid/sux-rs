@@ -44,12 +44,7 @@ clap = { version = "4.4.18", features = ["derive"], optional=true }
 impl-tools = "0.10.0"
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["html_reports"] }
 maligned = "0.2.1"
-
-[[bench]]
-name = "bench_modulo2system"
-harness = false
 
 [features]
 default = ["rayon", "cli"]

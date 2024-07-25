@@ -66,20 +66,16 @@ fn gen_system(
 
     for i in 0..n_eqs {
         edge.clear();
+        c[i] = gen_bounded(rng, 100);
+        let mut eq = Modulo2Equation::new(c[i], n_vars);
         for _ in 0..n_vars_per_eq {
             let mut x = gen_bounded(rng, n_vars);
             while edge.contains(&x) {
                 x = gen_bounded(rng, n_vars);
             }
             edge.insert(x);
-        }
-
-        //TODO: incorporabile nel for precedente
-        c[i] = gen_bounded(rng, 100);
-        let mut eq = Modulo2Equation::new(c[i], n_vars);
-        for v in edge.iter() {
-            eq.add(*v);
-            var2_eq[*v].push(i);
+            eq.add(x);
+            var2_eq[x].push(i);
         }
         system.add(eq);
     }

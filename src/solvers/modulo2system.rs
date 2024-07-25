@@ -380,9 +380,6 @@ impl Modulo2System {
         {
             measures.push(start.elapsed().as_millis());
             measures.push(measures[2] + measures[3] + measures[4]);
-            /*println!("Setting up sparse equations: {:?}ms", measures[2]);
-            println!("Solving dense system: {:?}ms", measures[3]);
-            println!("Computing solution: {:?}ms", measures[4]);*/
 
             let mut measures_csv = measures
                 .iter()
