@@ -2,7 +2,7 @@
 name = "sux"
 authors = ["Tommaso Fontana <tommaso.fontana.96@gmail.com>", "Sebastiano Vigna <sebastiano.vigna@unimi.it>"]
 description = "A pure Rust implementation of succinct and compressed data structures"
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 repository = "https://github.com/vigna/sux-rs/"
 license = "Apache-2.0 OR LGPL-2.1-or-later"
@@ -14,43 +14,52 @@ keywords = ["succinct", "rank", "select"]
 anyhow = "1.0.79"
 bitflags = "2.4.2"
 bytemuck = "1.14.0"
-common_traits = "0.10.0"
+common_traits = "0.11.0"
 libc = "0.2.147"
 log = "0.4.20"
-mmap-rs = "0.6.1"
 num_cpus = "1.16.0"
 num-traits = "0.2.15"
-epserde = "0.5.0"
 dsi-progress-logger = "0.2.2"
 rand = {version="0.8.5", features=["small_rng"]}
-zstd = "0.13.0"
 tempfile = "3.9.0"
 lender = "0.2.9"
+mmap-rs = "0.6.1"
+stable_deref_trait = "1.2.0"
+yoke = "0.7.1"
+epserde = "0.6.1"
+bitvec = "1.0.1"
+zstd = { version = "0.13.1" }
+xxh3 = "0.1.1"
 arbitrary-chunks = "0.4.1"
 derive_setters = "0.1.6"
 flate2 = "1.0.28"
 derivative = "2.2.0"
 rdst = "0.20.12"
-mem_dbg = "0.1.8"
-
+mem_dbg = "0.2.2"
 rayon = {version = "1.8.1", optional=true}
+core_affinity = "0.8.1"
+env_logger = {version = "0.11.0"}
+ambassador = "0.4.0"
+impl-tools = "0.10.0"
 
 # Fuzz
 arbitrary = { version = "1.3.2", features = ["derive"], optional=true }
 
 # Cli
-env_logger = {version = "0.11.0", optional = true}
 clap = { version = "4.4.18", features = ["derive"], optional=true }
-impl-tools = "0.10.0"
 
 [dev-dependencies]
 maligned = "0.2.1"
+rdst = "0.20.11"
+static_assertions = "1.1.0"
+forward-traits = "3.1.0"
+criterion = { version = "0.5.1", features = ["html_reports"] }
 
 [features]
-default = ["rayon", "cli"]
-cli = ["dep:clap", "dep:env_logger"] # Build the binary utils
+default = ["rayon"]
+cli = ["dep:clap"] # Build the binary utils
 fuzz = ["dep:arbitrary"]
-slow = [] # Run slow tests (use --release)
+slow_tests = [] # Run slow tests (use --release)
 time_log = [] # Useful for benchmarking
 
 [profile.release]
@@ -59,4 +68,40 @@ lto = "fat"               # Full LTO
 overflow-checks = false   # Disable integer overflow checks.
 debug = true              # Include debug info.
 debug-assertions = false  # Enables debug assertions.
-codegen-units=1           # slower compile times, but maybe better perf
+codegen-units = 1         # slower compile times, but maybe better perf
+
+[lib]
+bench = false
+
+[[bin]]
+name = "rcl"
+required-features = ["cli"]
+
+[[bin]]
+name = "mem_usage"
+required-features = ["cli"]
+
+#[[bin]]
+#name = "bench_like_cpp"
+#required-features = ["cli"]
+
+[[bench]]
+name = "sux"
+harness = false
+required-features = ["cli"]
+
+[[example]]
+name = "bench_bit_field_vec"
+required-features = ["cli"]
+
+[[example]]
+name = "bench_rank9"
+required-features = ["cli"]
+
+[[example]]
+name = "bench_elias_fano"
+required-features = ["cli"]
+
+[[example]]
+name = "bench_rear_coded_list"
+required-features = ["cli"]

@@ -5,62 +5,65 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-/*!
-
-Traits for slices of bit fields of constant width.
-
-Slices of bit fields are accessed with a logic similar to slices, but
-when indexed with [`get`](BitFieldSlice::get) return an owned value
-of a [fixed bit width](BitFieldSliceCore::bit_width). The associated
-implementation is [`BitFieldVec`](crate::bits::bit_field_vec::BitFieldVec).
-
-Implementing the [`Index`](core::ops::Index)/[`IndexMut`](core::ops::IndexMut) traits
-would be more natural and practical, but in certain cases it is impossible:
-in our main use case, [`BitFieldVec`](crate::bits::bit_field_vec::BitFieldVec),
-we cannot implement [`Index`](core::ops::Index) because there is no way to
-return a reference to a bit segment.
-
-There are three end-user traits: [`BitFieldSlice`], [`BitFieldSliceMut`] and [`AtomicBitFieldSlice`].
-The trait [`BitFieldSliceCore`] contains the common methods, and in particular
-[`BitFieldSliceCore::bit_width`], which returns the bit width the values stored in the slice.
- All stored values must fit within this bit width.
-
-All the traits depends on a type parameter `W` that must implement [`Word`], and which
-default to `usize`, but any type satisfying the [`Word`] trait
-can be used, with the restriction that the bit width of the slice can be at most
-the bit width of `W` as defined by [`AsBytes::BITS`]. Additionally,
-to implement [`AtomicBitFieldSlice`], `W` must implement [`IntoAtomic`].
-The methods of all traits accept and return values of type `W`.
-
-If you need to iterate over a [`BitFieldSlice`], you can use [`BitFieldSliceIterator`].
-
-Implementations must return always zero on a [`BitFieldSlice::get`] when the bit
-width is zero. The behavior of a [`BitFieldSliceMut::set`] in the same context is not defined.
-
-It is suggested that types implementing [`BitFieldSlice`] implement on a reference
-[`IntoIterator`] with item `W` using [`BitFieldSliceIterator`] as helper.
-
-We provide implementations for vectors and slices of all primitive atomic and non-atomic
-unsigned integer types that view their elements as values with a bit width
-equal to that of the type.
-
-## Simpler methods for atomic slices
-
-[`AtomicBitFieldSlice`] has rather cumbersome method names. There is however a trait [`AtomicHelper`]
-that can be imported that will add to [`AtomicBitFieldSlice`] equivalent methods without the `_atomic`
-infix. You should be however careful to not mix [`AtomicHelper`] and [`BitFieldSlice`] or a number
-of ambiguities in trait resolution will arise. In particular, if you plan to use [`AtomicHelper`], we
-suggest that you do not import the prelude.
-```rust
-use sux::traits::bit_field_slice::{AtomicBitFieldSlice,AtomicHelper};
-use std::sync::atomic::Ordering;
-
-let slice = sux::bits::AtomicBitFieldVec::<usize>::new(3, 3);
-slice.set(0, 1, Ordering::Relaxed);
-assert_eq!(slice.get(0, Ordering::Relaxed), 1);
-```
-
-*/
+//! Traits for slices of bit fields of constant width.
+//!
+//! Slices of bit fields are accessed with a logic similar to slices, but when
+//! indexed with [`get`](BitFieldSlice::get) return an owned value of a [fixed
+//! bit width](BitFieldSliceCore::bit_width). The associated implementation is
+//! [`BitFieldVec`](crate::bits::bit_field_vec::BitFieldVec).
+//!
+//! Implementing the
+//! [`Index`](core::ops::Index)/[`IndexMut`](core::ops::IndexMut) traits would
+//! be more natural and practical, but in certain cases it is impossible: in our
+//! main use case, [`BitFieldVec`](crate::bits::bit_field_vec::BitFieldVec), we
+//! cannot implement [`Index`](core::ops::Index) because there is no way to
+//! return a reference to a bit segment.
+//!
+//! There are three end-user traits: [`BitFieldSlice`], [`BitFieldSliceMut`] and
+//! [`AtomicBitFieldSlice`]. The trait [`BitFieldSliceCore`] contains the common
+//! methods, and in particular [`BitFieldSliceCore::bit_width`], which returns
+//!  the bit width the values stored in the slice. All stored values must fit
+//!  within this bit width.
+//!
+//! All the traits depends on a type parameter `W` that must implement [`Word`],
+//! and which default to `usize`, but any type satisfying the [`Word`] trait can
+//! be used, with the restriction that the bit width of the slice can be at most
+//! the bit width of `W` as defined by [`AsBytes::BITS`]. Additionally, to
+//! implement [`AtomicBitFieldSlice`], `W` must implement [`IntoAtomic`]. The
+//! methods of all traits accept and return values of type `W`.
+//!
+//! If you need to iterate over a [`BitFieldSlice`], you can use
+//! [`BitFieldSliceIterator`].
+//!
+//! Implementations must return always zero on a [`BitFieldSlice::get`] when the
+//! bit width is zero. The behavior of a [`BitFieldSliceMut::set`] in the same
+//! context is not defined.
+//!
+//! It is suggested that types implementing [`BitFieldSlice`] implement on a
+//! reference [`IntoIterator`] with item `W` using [`BitFieldSliceIterator`] as
+//! helper.
+//!
+//! We provide implementations for vectors and slices of all primitive atomic
+//! and non-atomic unsigned integer types that view their elements as values
+//! with a bit width equal to that of the type.
+//!
+//! # Simpler methods for atomic slices
+//!
+//! [`AtomicBitFieldSlice`] has rather cumbersome method names. There is however
+//! a trait [`AtomicHelper`] that can be imported that will add to
+//! [`AtomicBitFieldSlice`] equivalent methods without the `_atomic` infix. You
+//! should be however careful to not mix [`AtomicHelper`] and [`BitFieldSlice`]
+//! or a number of ambiguities in trait resolution will arise. In particular, if
+//! you plan to use [`AtomicHelper`], we suggest that you do not import the
+//! prelude.
+//! ```rust
+//! use sux::traits::bit_field_slice::{AtomicBitFieldSlice,AtomicHelper};
+//! use std::sync::atomic::Ordering;
+//!
+//! let slice = sux::bits::AtomicBitFieldVec::<usize>::new(3, 3);
+//! slice.set(0, 1, Ordering::Relaxed);
+//! assert_eq!(slice.get(0, Ordering::Relaxed), 1);
+//! ```
 use common_traits::*;
 use core::sync::atomic::*;
 use mem_dbg::{MemDbg, MemSize};
@@ -76,12 +79,13 @@ impl<W: UnsignedInt + FiniteRangeNumber + AsBytes> Word for W {}
 /// The dependence on `W` is necessary to implement this trait on vectors and slices, as
 /// we need the bit width of the values stored in the slice.
 pub trait BitFieldSliceCore<W> {
-    /// Return the width of the slice. All elements stored in the slice must
-    /// fit within this bit width.
+    /// Returns the width of the slice.
+    ///
+    /// All elements stored in the slice must fit within this bit width.
     fn bit_width(&self) -> usize;
-    /// Return the length of the slice.
+    /// Returns the length of the slice.
     fn len(&self) -> usize;
-    /// Return if the slice has length zero
+    /// Returns true if the slice has length zero.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -118,13 +122,14 @@ macro_rules! debug_assert_bounds {
 
 /// A slice of bit fields of constant bit width.
 pub trait BitFieldSlice<W: Word>: BitFieldSliceCore<W> {
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Safety
+    ///
     /// `index` must be in [0..[len](`BitFieldSliceCore::len`)). No bounds checking is performed.
     unsafe fn get_unchecked(&self, index: usize) -> W;
 
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Panics
     /// May panic if the index is not in in [0..[len](`BitFieldSliceCore::len`))
@@ -136,37 +141,114 @@ pub trait BitFieldSlice<W: Word>: BitFieldSliceCore<W> {
 
 /// A mutable slice of bit fields of constant bit width.
 pub trait BitFieldSliceMut<W: Word>: BitFieldSliceCore<W> {
-    /// Set the element of the slice at the specified index.
+    /// Return the mask to apply to values to ensure they fit in [`Self::bit_width`] bits.
+    #[inline(always)]
+    fn mask(&self) -> W {
+        // TODO: Maybe testless?
+        if self.bit_width() == 0 {
+            W::ZERO
+        } else {
+            W::MAX >> (W::BITS as u32 - self.bit_width() as u32)
+        }
+    }
+
+    /// Sets the element of the slice at the specified index.
     /// No bounds checking is performed.
     ///
     /// # Safety
     /// - `index` must be in [0..[len](`BitFieldSliceCore::len`));
     /// - `value` must fit withing [`BitFieldSliceCore::bit_width`] bits.
+    ///
     /// No bound or bit-width check is performed.
     unsafe fn set_unchecked(&mut self, index: usize, value: W);
 
-    /// Set the element of the slice at the specified index.
+    /// Sets the element of the slice at the specified index.
     ///
     /// May panic if the index is not in in [0..[len](`BitFieldSliceCore::len`))
     /// or the value does not fit in [`BitFieldSliceCore::bit_width`] bits.
     fn set(&mut self, index: usize, value: W) {
         panic_if_out_of_bounds!(index, self.len());
-        let bw = self.bit_width();
+        let bit_width = self.bit_width();
         // TODO: Maybe testless?
-        let mask = if bw == 0 {
+        let mask = if bit_width == 0 {
             W::ZERO
         } else {
-            W::MAX >> (W::BITS as u32 - bw as u32)
+            W::MAX >> (W::BITS as u32 - bit_width as u32)
         };
 
-        panic_if_value!(value, mask, bw);
+        panic_if_value!(value, mask, bit_width);
         unsafe {
             self.set_unchecked(index, value);
         }
     }
 
-    /// Set all values to zero
+    /// Sets all values to zero.
     fn reset(&mut self);
+
+    /// Applies a function to all elements of the slice in place.
+    ///
+    /// This is semantically equivalent to:
+    /// ```ignore
+    /// for i in 0..self.len() {
+    ///     self.set(i, f(self.get(i)));
+    /// }
+    /// ```
+    /// but it's much more efficient, on our tests it's about 5 times faster.
+    ///
+    /// The function is applied from the first element to the last, this allows
+    /// to compute cumulative sums as:
+    ///
+    /// ```rust
+    /// use sux::bits::BitFieldVec;
+    /// use sux::traits::{BitFieldSliceRW, BitFieldSliceMut};
+    ///
+    /// let mut vec = BitFieldVec::<u16>::new(9, 10);
+    ///
+    /// for i in 0..10 {
+    ///     vec.set(i, i as u16);
+    /// }
+    ///
+    /// let mut total = 0;
+    /// vec.apply_in_place(|x| {
+    ///     total += x;
+    ///     total
+    /// });
+    /// ```
+    ///
+    /// # Safety
+    /// The function must return a value that fits in the bit width of the slice.
+    unsafe fn apply_in_place_unchecked<F>(&mut self, mut f: F)
+    where
+        F: FnMut(W) -> W,
+        Self: BitFieldSlice<W>,
+    {
+        for idx in 0..self.len() {
+            let value = unsafe { self.get_unchecked(idx) };
+            let new_value = f(value);
+            unsafe { self.set_unchecked(idx, new_value) };
+        }
+    }
+
+    /// Applies a function to all elements of the slice in place checking that
+    /// the result fits in the bit width.
+    ///
+    /// Like [`BitFieldSliceRW::apply_in_place_unchecked`] but it checks that the
+    /// result of the function fits in the bit width of the slice.
+    fn apply_in_place<F>(&mut self, mut f: F)
+    where
+        F: FnMut(W) -> W,
+        Self: BitFieldSlice<W>,
+    {
+        let bit_width = self.bit_width();
+        let mask = self.mask();
+        unsafe {
+            self.apply_in_place_unchecked(|x| {
+                let new_value = f(x);
+                panic_if_value!(new_value, mask, bit_width);
+                new_value
+            });
+        }
+    }
 }
 
 /// A (tentatively) thread-safe slice of bit fields of constant bit width supporting atomic operations.
@@ -198,6 +280,7 @@ where
     /// # Safety
     /// - `index` must be in [0..[len](`BitFieldSliceCore::len`));
     /// - `value` must fit withing [`BitFieldSliceCore::bit_width`] bits.
+    ///
     /// No bound or bit-width check is performed.
     unsafe fn set_atomic_unchecked(&self, index: usize, value: W, order: Ordering);
 
@@ -285,6 +368,11 @@ macro_rules! impl_core {
 }
 
 impl_core!(u8, u16, u32, u64, u128, usize);
+// This implementation is not necessary, but it avoids ambiguity
+// with expressions like [1, 2, 3].len() when using the prelude.
+// Without this implementation, the compiler complains that
+// BitFieldSliceCore is not implemented for [i32; 3].
+impl_core!(i8, i16, i32, i64, i128, isize);
 
 macro_rules! impl_ref {
     ($($ty:ty),*) => {$(

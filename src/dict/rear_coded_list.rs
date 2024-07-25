@@ -5,13 +5,11 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-/*!
+//! Compressed string storage by rear-coded prefix omission.
 
-Immutable lists of strings compressed by prefix omission via rear coding.
+use std::borrow::Borrow;
 
-*/
-
-use crate::traits::IndexedDict;
+use crate::traits::{IndexedDict, IndexedSeq, Types};
 use epserde::*;
 use lender::for_;
 use lender::{ExactSizeLender, IntoLender, Lender, Lending};
@@ -32,7 +30,7 @@ struct Stats {
 
     /// Maximum string length in bytes.
     pub max_str_len: usize,
-    /// The total sum of the strings length in bytes.
+    /// The total sum of the string lengths in bytes.
     pub sum_str_len: usize,
 
     /// The number of bytes used to store the rear lengths in data.
@@ -44,22 +42,47 @@ struct Stats {
     pub redundancy: isize,
 }
 
-/**
+/// Immutable lists of strings compressed by rear-coded prefix omission.
+///
+/// Prefix omission compresses a list of strings omitting the common prefixes of
+/// consecutive strings. To do so, it stores the length of what remains after
+/// the common prefix (hence, rear coding). It is usually applied to lists
+/// strings sorted in ascending order.
+///
+/// The encoding is done in blocks of `k` strings: in each block the first
+/// string is encoded without compression, wheres the other strings are encoded
+/// with the common prefix removed.
+///
+/// Rear-coded lists can be iterated upon using either an
+/// [`Iterator`](RearCodedList::iter) or a [`Lender`](RearCodedList::lend).
+/// In the first case there will be an allocation at each iteration, whereas in
+/// second case a single buffer will be reused.
+///
+/// To build a [`RearCodedList`] you use a [`RearCodedListBuilder`].
+///
+/// # Examples
+///
+/// ```rust
+/// use sux::traits::IndexedSeq;
+/// use sux::dict::RearCodedListBuilder;
+/// let mut rclb = RearCodedListBuilder::new(4);
+///
+/// rclb.push("aa");
+/// rclb.push("aab");
+/// rclb.push("abc");
+/// rclb.push("abdd");
+/// rclb.push("abde");
+/// rclb.push("abdf");
+///
+/// let rcl = rclb.build();
+/// assert_eq!(rcl.len(), 6);
+/// assert_eq!(rcl.get(0), "aa");
+/// assert_eq!(rcl.get(1), "aab");
+/// assert_eq!(rcl.get(2), "abc");
+/// ```
 
-Immutable lists of strings compressed by prefix omission via rear coding.
-
-Prefix omission compresses a list of strings omitting the common prefixes
-of consecutive strings. To do so, it stores the length of what remains
-after the common prefix (hence, rear coding). It is usually applied
-to lists strings sorted in ascending order.
-
-The encoding is done in blocks of `k` strings: in each block the first string is encoded
-without compression, wheres the other strings are encoded with the common prefix
-removed.
-
-*/
 #[derive(Debug, Clone, Epserde, MemDbg, MemSize)]
-pub struct RearCodedList<D: AsRef<[u8]> = Vec<u8>, P: AsRef<[usize]> = Vec<usize>> {
+pub struct RearCodedList<D: AsRef<[u8]> = Box<[u8]>, P: AsRef<[usize]> = Box<[usize]>> {
     /// The number of strings in a block; this value trades off compression for speed.
     k: usize,
     /// Number of encoded strings.
@@ -72,9 +95,281 @@ pub struct RearCodedList<D: AsRef<[u8]> = Vec<u8>, P: AsRef<[usize]> = Vec<usize
     pointers: P,
 }
 
+impl<D: AsRef<[u8]>, P: AsRef<[usize]>> RearCodedList<D, P> {
+    /// Returns the number of strings.
+    ///
+    /// This method is equivalent to [`IndexedSeq::len`], but it is provided to
+    /// reduce ambiguity in method resolution.
+    #[inline]
+    pub fn len(&self) -> usize {
+        IndexedSeq::len(self)
+    }
+
+    /// Returns an [`Iterator`] over the strings starting from the given position.
+    #[inline(always)]
+    pub fn iter_from(&self, from: usize) -> Iter<'_, D, P> {
+        Iter {
+            iter: Lend::new_from(self, from),
+        }
+    }
+
+    /// Returns an [`Iterator`] over the strings.
+    #[inline(always)]
+    pub fn iter(&self) -> Iter<'_, D, P> {
+        self.iter_from(0)
+    }
+
+    /// Returns a [`Lender`] over the strings starting from the given position.
+    #[inline(always)]
+    pub fn lend_from(&self, from: usize) -> Lend<'_, D, P> {
+        Lend::new_from(self, from)
+    }
+
+    /// Returns a [`Lender`] over the strings.
+    #[inline(always)]
+    pub fn lend(&self) -> Lend<'_, D, P> {
+        self.lend_from(0)
+    }
+
+    /// Writes the index-th string to `result` as bytes. This is useful to avoid
+    /// allocating a new string for every query and skipping the UTF-8 validity
+    /// check.
+    #[inline]
+    pub fn get_in_place(&self, index: usize, result: &mut Vec<u8>) {
+        result.clear();
+        let block = index / self.k;
+        let offset = index % self.k;
+
+        let start = self.pointers.as_ref()[block];
+        let data = &self.data.as_ref()[start..];
+
+        // decode the first string in the block
+        let mut data = strcpy(data, result);
+
+        for _ in 0..offset {
+            // get how much data to throw away
+            let (len, tmp) = decode_int(data);
+            // throw away the data
+            result.resize(result.len() - len, 0);
+            // copy the new suffix
+            let tmp = strcpy(tmp, result);
+            data = tmp;
+        }
+    }
+
+    fn index_of_unsorted(&self, value: impl Borrow<<Self as Types>::Input>) -> Option<usize> {
+        let key = value.borrow().as_bytes();
+        let mut iter = self.into_lender().enumerate();
+        while let Some((idx, string)) = iter.next() {
+            if matches!(
+                strcmp_rust(key, string.as_bytes()),
+                core::cmp::Ordering::Equal
+            ) {
+                return Some(idx);
+            }
+        }
+        None
+    }
+
+    fn index_of_sorted(&self, value: impl Borrow<<Self as Types>::Input>) -> Option<usize> {
+        let string = value.borrow().as_bytes();
+        // first to a binary search on the blocks to find the block
+        let block_idx = self.pointers.as_ref().binary_search_by(|block_ptr| {
+            strcmp(string, &self.data.as_ref()[*block_ptr..]).reverse()
+        });
+
+        if let Ok(block_idx) = block_idx {
+            return Some(block_idx * self.k);
+        }
+
+        let mut block_idx = block_idx.unwrap_err();
+        if block_idx == 0 || block_idx > self.pointers.as_ref().len() {
+            // the string is before the first block
+            return None;
+        }
+        block_idx -= 1;
+        // finish by a linear search on the block
+        let mut result = Vec::with_capacity(128);
+        let start = self.pointers.as_ref()[block_idx];
+        let data = &self.data.as_ref()[start..];
+
+        // decode the first string in the block
+        let mut data = strcpy(data, &mut result);
+        let in_block = (self.k - 1).min(self.len - block_idx * self.k - 1);
+        for idx in 0..in_block {
+            // get how much data to throw away
+            let (len, tmp) = decode_int(data);
+            let lcp = result.len() - len;
+            // throw away the data
+            result.resize(lcp, 0);
+            // copy the new suffix
+            let tmp = strcpy(tmp, &mut result);
+            data = tmp;
+
+            // TODO!: this can be optimized to avoid the copy
+            match strcmp_rust(string, &result) {
+                core::cmp::Ordering::Less => {}
+                core::cmp::Ordering::Equal => return Some(block_idx * self.k + idx + 1),
+                core::cmp::Ordering::Greater => return None,
+            }
+        }
+        None
+    }
+}
+
+impl<D: AsRef<[u8]>, P: AsRef<[usize]>> Types for RearCodedList<D, P> {
+    type Output = String;
+    type Input = str;
+}
+
+impl<D: AsRef<[u8]>, P: AsRef<[usize]>> IndexedSeq for RearCodedList<D, P> {
+    #[inline(always)]
+    unsafe fn get_unchecked(&self, index: usize) -> Self::Output {
+        let mut result = Vec::with_capacity(128);
+        self.get_in_place(index, &mut result);
+        String::from_utf8(result).unwrap()
+    }
+
+    #[inline(always)]
+    fn len(&self) -> usize {
+        self.len
+    }
+}
+
+impl<D: AsRef<[u8]>, P: AsRef<[usize]>> IndexedDict for RearCodedList<D, P> {
+    /// If the strings in the list are sorted this is done with a binary search,
+    /// otherwise it is done with a linear search.
+    #[inline(always)]
+    fn contains(&self, value: impl Borrow<Self::Input>) -> bool {
+        self.index_of(value).is_some()
+    }
+
+    fn index_of(&self, value: impl Borrow<Self::Input>) -> Option<usize> {
+        if self.is_sorted {
+            self.index_of_sorted(value)
+        } else {
+            self.index_of_unsorted(value)
+        }
+    }
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> IntoLender for &'a RearCodedList<D, P> {
+    type Lender = Lend<'a, D, P>;
+    #[inline(always)]
+    fn into_lender(self) -> Lend<'a, D, P> {
+        Lend::new(self)
+    }
+}
+
+/// Sequential [`Iterator`] over the strings.
+#[derive(Debug, Clone, MemDbg, MemSize)]
+pub struct Iter<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> {
+    iter: Lend<'a, D, P>,
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> std::iter::ExactSizeIterator for Iter<'a, D, P> {
+    fn len(&self) -> usize {
+        self.iter.len()
+    }
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> std::iter::Iterator for Iter<'a, D, P> {
+    type Item = String;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter
+            .next()
+            .map(|v| unsafe { String::from_utf8_unchecked(Vec::from(v)) })
+    }
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> IntoIterator for &'a RearCodedList<D, P> {
+    type Item = String;
+    type IntoIter = Iter<'a, D, P>;
+    #[inline(always)]
+    fn into_iter(self) -> Self::IntoIter {
+        Iter {
+            iter: Lend::new(self),
+        }
+    }
+}
+
+/// Sequential [`Lender`] over the strings.
+#[derive(Debug, Clone, MemDbg, MemSize)]
+pub struct Lend<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> {
+    rca: &'a RearCodedList<D, P>,
+    buffer: Vec<u8>,
+    data: &'a [u8],
+    index: usize,
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> Lend<'a, D, P> {
+    pub fn new(rca: &'a RearCodedList<D, P>) -> Self {
+        Self {
+            rca,
+            buffer: Vec::with_capacity(128),
+            data: rca.data.as_ref(),
+            index: 0,
+        }
+    }
+
+    pub fn new_from(rca: &'a RearCodedList<D, P>, from: usize) -> Self {
+        let block = from / rca.k;
+        let offset = from % rca.k;
+
+        let start = rca.pointers.as_ref()[block];
+        let mut res = Lend {
+            rca,
+            index: block * rca.k,
+            data: &rca.data.as_ref()[start..],
+            buffer: Vec::with_capacity(128),
+        };
+        for _ in 0..offset {
+            res.next();
+        }
+        res
+    }
+}
+
+impl<'a, 'b, D: AsRef<[u8]>, P: AsRef<[usize]>> Lending<'a> for Lend<'b, D, P> {
+    type Lend = &'a str;
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> Lender for Lend<'a, D, P> {
+    #[inline]
+    /// A next that returns a reference to the inner buffer containg the string.
+    /// This is useful to avoid allocating a new string for every query if you
+    /// don't need to keep the string around.
+    fn next(&mut self) -> Option<&'_ str> {
+        if self.index >= self.rca.len() {
+            return None;
+        }
+
+        if self.index % self.rca.k == 0 {
+            // just copy the data
+            self.buffer.clear();
+            self.data = strcpy(self.data, &mut self.buffer);
+        } else {
+            let (len, tmp) = decode_int(self.data);
+            self.buffer.resize(self.buffer.len() - len, 0);
+            self.data = strcpy(tmp, &mut self.buffer);
+        }
+        self.index += 1;
+
+        Some(unsafe { std::str::from_utf8_unchecked(&self.buffer) })
+    }
+}
+
+impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> ExactSizeLender for Lend<'a, D, P> {
+    fn len(&self) -> usize {
+        self.rca.len() - self.index
+    }
+}
+
+/// Builder for a rear-coded list.
 #[derive(Debug, Clone, MemDbg, MemSize)]
 pub struct RearCodedListBuilder {
-    /// The number of strings in a block; this value trades off compression for speed.
+    /// The number of strings in a block; this value trades compression for speed.
     k: usize,
     /// Number of encoded strings.
     len: usize,
@@ -90,7 +385,7 @@ pub struct RearCodedListBuilder {
     last_str: Vec<u8>,
 }
 
-/// Copy a string until the first `\0` from `data` to `result` and return the
+/// Copies a string until the first `\0` from `data` to `result` and return the
 /// remaining data.
 #[inline(always)]
 fn strcpy<'a>(mut data: &'a [u8], result: &mut Vec<u8>) -> &'a [u8] {
@@ -106,20 +401,24 @@ fn strcpy<'a>(mut data: &'a [u8], result: &mut Vec<u8>) -> &'a [u8] {
 }
 
 #[inline(always)]
-/// strcmp but string is a Rust string and data is a `\0`-terminated string.
+/// Like strcmp, but `string` is a Rust string and data is a `\0`-terminated string.
 fn strcmp(string: &[u8], data: &[u8]) -> core::cmp::Ordering {
     for (i, c) in string.iter().enumerate() {
-        match data[i].cmp(c) {
-            core::cmp::Ordering::Equal => {}
-            ord => return ord,
+        let ord = c.cmp(&data[i]);
+        if ord != core::cmp::Ordering::Equal {
+            return ord;
         }
     }
-    // string has an implicit final \0
-    data[string.len()].cmp(&0)
+
+    if data[string.len()] == 0 {
+        core::cmp::Ordering::Equal
+    } else {
+        core::cmp::Ordering::Less
+    }
 }
 
 #[inline(always)]
-/// strcmp but both string are Rust strings.
+/// Like strcmp, but both string are Rust strings.
 fn strcmp_rust(string: &[u8], other: &[u8]) -> core::cmp::Ordering {
     for (i, c) in string.iter().enumerate() {
         match other.get(i).unwrap_or(&0).cmp(c) {
@@ -132,7 +431,7 @@ fn strcmp_rust(string: &[u8], other: &[u8]) -> core::cmp::Ordering {
 }
 
 impl RearCodedListBuilder {
-    #[inline]
+    /// Creates a builder for a rear-coded list with a block size of `k`.
     pub fn new(k: usize) -> Self {
         Self {
             data: Vec::with_capacity(1024),
@@ -145,26 +444,18 @@ impl RearCodedListBuilder {
         }
     }
 
-    #[inline]
-    pub fn build(self) -> RearCodedList<Vec<u8>, Vec<usize>> {
+    /// Builds the rear-coded list.
+    pub fn build(self) -> RearCodedList<Box<[u8]>, Box<[usize]>> {
         RearCodedList {
-            data: self.data,
-            pointers: self.pointers,
+            data: self.data.into(),
+            pointers: self.pointers.into(),
             len: self.len,
             is_sorted: self.is_sorted,
             k: self.k,
         }
     }
 
-    /// Re-allocate the data to remove wasted capacity in the structure
-    pub fn shrink_to_fit(&mut self) {
-        self.data.shrink_to_fit();
-        self.pointers.shrink_to_fit();
-        self.last_str.shrink_to_fit();
-    }
-
-    #[inline]
-    /// Encode and append a string to the end of the list.
+    /// Appends a string to the end of the list.
     pub fn push(&mut self, string: impl AsRef<str>) {
         let string = string.as_ref();
         // update stats
@@ -221,18 +512,43 @@ impl RearCodedListBuilder {
         self.len += 1;
     }
 
-    #[inline]
-    /// Append all the strings from an iterator to the end of the list
-    pub fn extend<S: AsRef<str>, L: IntoLender>(&mut self, into_lender: L)
+    /// Appends all the strings from a [`Lender`] to the end of the list.
+    ///
+    /// We prefer to implement extension via a [`Lender`] instead of an
+    /// [`Iterator`] to avoid the need to allocate a new string for every string
+    /// in the list. This is particularly useful when building large lists
+    /// from files using, for example, a
+    /// [`RewindableIoLender`](crate::utils::lenders::RewindableIoLender).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use lender::*;
+    /// use sux::dict::RearCodedListBuilder;
+    /// let mut rclb = RearCodedListBuilder::new(4);
+    /// let words = vec!["aa", "aab", "abc", "abdd", "abde", "abdf"];
+    /// // We need the map because s has type &&str
+    /// rclb.extend(words.iter().map(|s| *s).into_lender());
+    /// let rcl = rclb.build();
+    ///
+    /// let mut rclb = RearCodedListBuilder::new(4);
+    /// let words = vec!["aa".to_string(), "aab".to_string(), "abc".to_string(),
+    ///     "abdd".to_string(), "abde".to_string(), "abdf".to_string()];
+    /// // We need the map to turn String into &str
+    /// rclb.extend(words.iter().map(|s| s.as_str()).into_lender());
+    /// let rcl = rclb.build();
+    /// ```
+    pub fn extend<S: Borrow<str>, L: IntoLender>(&mut self, into_lender: L)
     where
         L::Lender: for<'lend> Lending<'lend, Lend = S>,
     {
         for_!(string in into_lender {
-            self.push(string);
+            self.push(string.borrow());
         });
     }
 
-    /// Print in an human readable format the statistics of the RCL
+    /// Prints in a human-readable format the statistics of the
+    /// strings currently in the builder.
     pub fn print_stats(&self) {
         println!(
             "{:>20}: {:>10}",
@@ -302,239 +618,8 @@ impl RearCodedListBuilder {
     }
 }
 
-impl<D: AsRef<[u8]>, P: AsRef<[usize]>> RearCodedList<D, P> {
-    /// Write the index-th string to `result` as bytes. This is useful to avoid
-    /// allocating a new string for every query and skipping the UTF-8 validity
-    /// check.
-    #[inline(always)]
-    pub fn get_inplace(&self, index: usize, result: &mut Vec<u8>) {
-        result.clear();
-        let block = index / self.k;
-        let offset = index % self.k;
-
-        let start = self.pointers.as_ref()[block];
-        let data = &self.data.as_ref()[start..];
-
-        // decode the first string in the block
-        let mut data = strcpy(data, result);
-
-        for _ in 0..offset {
-            // get how much data to throw away
-            let (len, tmp) = decode_int(data);
-            // throw away the data
-            result.resize(result.len() - len, 0);
-            // copy the new suffix
-            let tmp = strcpy(tmp, result);
-            data = tmp;
-        }
-    }
-
-    fn contains_unsorted(&self, key: &<Self as IndexedDict>::Input) -> bool {
-        let key = key.as_bytes();
-        let mut iter = self.into_lender();
-        while let Some(string) = iter.next() {
-            if matches!(strcmp(key, string.as_bytes()), core::cmp::Ordering::Equal) {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn contains_sorted(&self, string: &<Self as IndexedDict>::Input) -> bool {
-        let string = string.as_bytes();
-        // first to a binary search on the blocks to find the block
-        let block_idx = self
-            .pointers
-            .as_ref()
-            .binary_search_by(|block_ptr| strcmp(string, &self.data.as_ref()[*block_ptr..]));
-
-        if block_idx.is_ok() {
-            return true;
-        }
-
-        let mut block_idx = block_idx.unwrap_err();
-        if block_idx == 0 || block_idx > self.pointers.as_ref().len() {
-            // the string is before the first block
-            return false;
-        }
-        block_idx -= 1;
-        // finish by a linear search on the block
-        let mut result = Vec::with_capacity(128);
-        let start = self.pointers.as_ref()[block_idx];
-        let data = &self.data.as_ref()[start..];
-
-        // decode the first string in the block
-        let mut data = strcpy(data, &mut result);
-        let in_block = (self.k - 1).min(self.len - block_idx * self.k - 1);
-        for _ in 0..in_block {
-            // get how much data to throw away
-            let (len, tmp) = decode_int(data);
-            let lcp = result.len() - len;
-            // throw away the data
-            result.resize(lcp, 0);
-            // copy the new suffix
-            let tmp = strcpy(tmp, &mut result);
-            data = tmp;
-
-            // TODO!: this can be optimized to avoid the copy
-            match strcmp_rust(string, &result) {
-                core::cmp::Ordering::Less => {}
-                core::cmp::Ordering::Equal => return true,
-                core::cmp::Ordering::Greater => return false,
-            }
-        }
-        false
-    }
-}
-
-impl<'a, 'all, D: AsRef<[u8]>, P: AsRef<[usize]>> Lending<'all> for &'a RearCodedList<D, P> {
-    type Lend = &'all str;
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> IntoLender for &'a RearCodedList<D, P> {
-    type Lender = Iterator<'a, D, P>;
-    #[inline(always)]
-    fn into_lender(self) -> Iterator<'a, D, P> {
-        Iterator::new(self)
-    }
-}
-
-impl<D: AsRef<[u8]>, P: AsRef<[usize]>> IndexedDict for RearCodedList<D, P> {
-    type Output = String;
-    type Input = str;
-
-    unsafe fn get_unchecked(&self, index: usize) -> Self::Output {
-        let mut result = Vec::with_capacity(128);
-        self.get_inplace(index, &mut result);
-        String::from_utf8(result).unwrap()
-    }
-
-    #[inline(always)]
-    fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Return whether the string is contained in the array.
-    /// If the strings in the list are sorted this is done with a binary search,
-    /// otherwise it is done with a linear search.
-    #[inline]
-    fn contains(&self, string: &Self::Input) -> bool {
-        if self.is_sorted {
-            self.contains_sorted(string)
-        } else {
-            self.contains_unsorted(string)
-        }
-    }
-}
-
-/// Sequential iterator over the strings.
-#[derive(Debug, Clone, MemDbg, MemSize)]
-pub struct Iterator<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> {
-    rca: &'a RearCodedList<D, P>,
-    buffer: Vec<u8>,
-    data: &'a [u8],
-    index: usize,
-}
-
-#[derive(Debug, Clone, MemDbg, MemSize)]
-pub struct ValueIterator<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> {
-    iter: Iterator<'a, D, P>,
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> std::iter::Iterator for ValueIterator<'a, D, P> {
-    type Item = String;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.iter
-            .next()
-            .map(|v| unsafe { String::from_utf8_unchecked(Vec::from(v)) })
-    }
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> Iterator<'a, D, P> {
-    pub fn new(rca: &'a RearCodedList<D, P>) -> Self {
-        Self {
-            rca,
-            buffer: Vec::with_capacity(128),
-            data: rca.data.as_ref(),
-            index: 0,
-        }
-    }
-
-    pub fn new_from(rca: &'a RearCodedList<D, P>, start_index: usize) -> Self {
-        let block = start_index / rca.k;
-        let offset = start_index % rca.k;
-
-        let start = rca.pointers.as_ref()[block];
-        let mut res = Iterator {
-            rca,
-            index: block * rca.k,
-            data: &rca.data.as_ref()[start..],
-            buffer: Vec::with_capacity(128),
-        };
-        for _ in 0..offset {
-            res.next();
-        }
-        res
-    }
-}
-
-impl<'a, 'b, D: AsRef<[u8]>, P: AsRef<[usize]>> Lending<'a> for Iterator<'b, D, P> {
-    type Lend = &'a str;
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> Lender for Iterator<'a, D, P> {
-    #[inline]
-    /// A next that returns a reference to the inner buffer containg the string.
-    /// This is useful to avoid allocating a new string for every query if you
-    /// don't need to keep the string around.
-    fn next(&mut self) -> Option<&'_ str> {
-        if self.index >= self.rca.len() {
-            return None;
-        }
-
-        if self.index % self.rca.k == 0 {
-            // just copy the data
-            self.buffer.clear();
-            self.data = strcpy(self.data, &mut self.buffer);
-        } else {
-            let (len, tmp) = decode_int(self.data);
-            self.buffer.resize(self.buffer.len() - len, 0);
-            self.data = strcpy(tmp, &mut self.buffer);
-        }
-        self.index += 1;
-
-        Some(unsafe { std::str::from_utf8_unchecked(&self.buffer) })
-    }
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> ExactSizeLender for Iterator<'a, D, P> {
-    fn len(&self) -> usize {
-        self.rca.len() - self.index
-    }
-}
-
-impl<'a, D: AsRef<[u8]>, P: AsRef<[usize]>> IntoIterator for &'a RearCodedList<D, P> {
-    type Item = String;
-    type IntoIter = ValueIterator<'a, D, P>;
-    #[inline(always)]
-    fn into_iter(self) -> Self::IntoIter {
-        ValueIterator {
-            iter: Iterator::new(self),
-        }
-    }
-}
-
-impl<D: AsRef<[u8]>, P: AsRef<[usize]>> RearCodedList<D, P> {
-    pub fn iter_from(&self, from: usize) -> ValueIterator<'_, D, P> {
-        ValueIterator {
-            iter: Iterator::new_from(self, from),
-        }
-    }
-}
-
 #[inline(always)]
-/// Compute the longest common prefix between two strings as bytes.
+/// Computes the longest common prefix between two strings as bytes.
 fn longest_common_prefix(a: &[u8], b: &[u8]) -> (usize, core::cmp::Ordering) {
     let min_len = a.len().min(b.len());
     // normal lcp computation
@@ -550,7 +635,7 @@ fn longest_common_prefix(a: &[u8], b: &[u8]) -> (usize, core::cmp::Ordering) {
     }
 }
 
-/// Compute the length in bytes of value encoded as VByte
+/// Computes the length in bytes of value encoded as VByte
 #[inline(always)]
 fn encode_int_len(mut value: usize) -> usize {
     let mut len = 1;
@@ -737,66 +822,120 @@ fn decode_int(data: &[u8]) -> (usize, &[u8]) {
 }
 
 #[cfg(test)]
-#[cfg_attr(test, test)]
-fn test_encode_decode_int() {
-    const MAX: usize = 1 << 20;
-    const MIN: usize = 0;
-    let mut buffer = Vec::with_capacity(128);
+mod tests {
+    use super::*;
 
-    for i in MIN..MAX {
-        encode_int(i, &mut buffer);
+    #[test]
+    fn test_strcmp() {
+        assert_eq!(strcmp(b"abcd", b"abcd\0"), core::cmp::Ordering::Equal);
+        assert_eq!(strcmp(b"abcd", b"abbd\0"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"abcd", b"abdd\0"), core::cmp::Ordering::Less);
+
+        assert_eq!(strcmp(b"a", b"b\0"), core::cmp::Ordering::Less);
+        assert_eq!(strcmp(b"b", b"a\0"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"abc", b"abc\0"), core::cmp::Ordering::Equal);
+        assert_eq!(strcmp(b"abc", b"abc\0abc"), core::cmp::Ordering::Equal);
+        assert_eq!(strcmp(b"abc", b"abc\0ab"), core::cmp::Ordering::Equal);
+        assert_eq!(strcmp(b"abc", b"ab\0"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"abc", b"ab\0abc"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"abc", b"ab\0ab"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"abc", b"ab\0"), core::cmp::Ordering::Greater);
+        assert_eq!(strcmp(b"a", b"ab\0"), core::cmp::Ordering::Less);
+        assert_eq!(strcmp(b"ab", b"ab\0"), core::cmp::Ordering::Equal);
     }
 
-    let mut data = &buffer[..];
-    for i in MIN..MAX {
-        let (j, tmp) = decode_int(data);
-        assert_eq!(data.len() - tmp.len(), encode_int_len(i));
-        data = tmp;
-        assert_eq!(i, j);
+    #[test]
+    fn test_encode_decode_int() {
+        let values = [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            UPPER_BOUND_1 - 1,
+            UPPER_BOUND_1,
+            UPPER_BOUND_1 + 1,
+            UPPER_BOUND_2 - 1,
+            UPPER_BOUND_2,
+            UPPER_BOUND_2 + 1,
+            UPPER_BOUND_3 - 1,
+            UPPER_BOUND_3,
+            UPPER_BOUND_3 + 1,
+            UPPER_BOUND_4 - 1,
+            UPPER_BOUND_4,
+            UPPER_BOUND_4 + 1,
+            UPPER_BOUND_5 - 1,
+            UPPER_BOUND_5,
+            UPPER_BOUND_5 + 1,
+            UPPER_BOUND_6 - 1,
+            UPPER_BOUND_6,
+            UPPER_BOUND_6 + 1,
+            UPPER_BOUND_7 - 1,
+            UPPER_BOUND_7,
+            UPPER_BOUND_7 + 1,
+            UPPER_BOUND_8 - 1,
+            UPPER_BOUND_8,
+            UPPER_BOUND_8 + 1,
+        ];
+        let mut buffer = Vec::with_capacity(128);
+
+        for i in &values {
+            encode_int(*i, &mut buffer);
+        }
+
+        let mut data = &buffer[..];
+        for i in &values {
+            let (j, tmp) = decode_int(data);
+            assert_eq!(data.len() - tmp.len(), encode_int_len(*i));
+            data = tmp;
+            assert_eq!(*i, j);
+        }
     }
-}
 
-#[cfg(test)]
-#[cfg_attr(test, test)]
-fn test_longest_common_prefix() {
-    let str1 = b"absolutely";
-    let str2 = b"absorption";
-    assert_eq!(
-        longest_common_prefix(str1, str2),
-        (4, core::cmp::Ordering::Less),
-    );
-    assert_eq!(
-        longest_common_prefix(str1, str1),
-        (str1.len(), core::cmp::Ordering::Equal)
-    );
-    assert_eq!(
-        longest_common_prefix(str2, str2),
-        (str2.len(), core::cmp::Ordering::Equal)
-    );
-}
-
-#[cfg(test)]
-fn read_into_lender<L: IntoLender>(into_lender: L) -> usize
-where
-    for<'a> <L::Lender as Lending<'a>>::Lend: AsRef<str>,
-{
-    let mut iter = into_lender.into_lender();
-    let mut c = 0;
-    while let Some(s) = iter.next() {
-        c += s.as_ref().len();
+    #[test]
+    fn test_longest_common_prefix() {
+        let str1 = b"absolutely";
+        let str2 = b"absorption";
+        assert_eq!(
+            longest_common_prefix(str1, str2),
+            (4, core::cmp::Ordering::Less),
+        );
+        assert_eq!(
+            longest_common_prefix(str1, str1),
+            (str1.len(), core::cmp::Ordering::Equal)
+        );
+        assert_eq!(
+            longest_common_prefix(str2, str2),
+            (str2.len(), core::cmp::Ordering::Equal)
+        );
     }
 
-    c
-}
+    #[cfg(test)]
+    fn read_into_lender<L: IntoLender>(into_lender: L) -> usize
+    where
+        for<'a> <L::Lender as Lending<'a>>::Lend: AsRef<str>,
+    {
+        let mut iter = into_lender.into_lender();
+        let mut c = 0;
+        while let Some(s) = iter.next() {
+            c += s.as_ref().len();
+        }
 
-#[cfg(test)]
-#[cfg_attr(test, test)]
-fn test_into_lend() {
-    let mut builder = RearCodedListBuilder::new(4);
-    builder.push("a");
-    builder.push("b");
-    builder.push("c");
-    builder.push("d");
-    let rcl = builder.build();
-    read_into_lender::<&RearCodedList>(&rcl);
+        c
+    }
+
+    #[test]
+    fn test_into_lend() {
+        let mut builder = RearCodedListBuilder::new(4);
+        builder.push("a");
+        builder.push("b");
+        builder.push("c");
+        builder.push("d");
+        let rcl = builder.build();
+        read_into_lender::<&RearCodedList>(&rcl);
+    }
 }

@@ -11,7 +11,6 @@ use epserde::prelude::*;
 use rand::rngs::SmallRng;
 use rand::Rng;
 use rand::SeedableRng;
-use std::sync::atomic::Ordering;
 use sux::prelude::*;
 
 #[test]
@@ -31,7 +30,7 @@ fn test_elias_fano_concurrent() -> Result<()> {
         values
             .par_iter()
             .enumerate()
-            .for_each(|(index, value)| unsafe { efb.set(index, *value, Ordering::SeqCst) });
+            .for_each(|(index, value)| unsafe { efb.set(index, *value) });
         // Finish the creation of elias-fano
         let _ef = efb.build();
     }
@@ -50,49 +49,43 @@ fn test_elias_fano() -> Result<()> {
         let mut efb = EliasFanoBuilder::new(n, u);
         // push the values
         for value in values.iter() {
-            efb.push(*value)?;
+            efb.push(*value);
         }
         // Finish the creation of elias-fano
         let ef = efb.build();
 
-        // do a slow select
-        for (i, v) in values.iter().enumerate() {
-            assert_eq!(ef.get(i), *v);
-            assert_eq!({ ef.get(i) }, *v);
-        }
-        // Add the ones indices
-        let ef: EliasFano<SelectFixed1> = ef.convert_to().unwrap();
+        // Add an index on ones (will make it into an IndexedSeq)
+        let ef = unsafe { ef.map_high_bits(SelectAdaptConst::<_, _>::new) };
+        // Add an index on zeros (will make it into an IndexedDict + Succ + Pred)
+        let ef = unsafe { ef.map_high_bits(SelectZeroAdaptConst::<_, _>::new) };
 
         for v in 0..u {
             let res = values.binary_search(&v);
             let contains = res.is_ok();
-            assert_eq!(ef.contains(&v), contains);
+            assert_eq!(ef.contains(v), contains);
 
             if contains {
                 let i = res.unwrap();
                 assert_eq!(ef.get(i), v);
-                assert_eq!(ef.get(ef.index_of(&v).unwrap()), v);
+                assert_eq!(ef.get(ef.index_of(v).unwrap()), v);
             } else {
-                assert_eq!(ef.index_of(&v), None);
+                assert_eq!(ef.index_of(v), None);
             }
         }
 
-        // Add the indices
-        let ef: sux::dict::elias_fano::EliasFano<SelectZeroFixed1<SelectFixed1>> =
-            ef.convert_to().unwrap();
         // do a fast select
         for (i, v) in values.iter().enumerate() {
             assert_eq!({ ef.get(i) }, *v);
         }
 
-        let mut iterator = ef.into_iter().enumerate();
+        let mut iterator = ef.iter().enumerate();
         while let Some((i, v)) = iterator.next() {
             assert_eq!(v, values[i]);
             assert_eq!(iterator.len(), ef.len() - i - 1);
         }
 
         for from in 0..ef.len() {
-            let mut iterator = ef.into_iter_from(from).enumerate();
+            let mut iterator = ef.iter_from(from).enumerate();
             while let Some((i, v)) = iterator.next() {
                 assert_eq!(v, values[i + from]);
                 assert_eq!(iterator.len(), ef.len() - i - from - 1);
@@ -106,7 +99,7 @@ fn test_elias_fano() -> Result<()> {
                 continue;
             }
             loop {
-                assert!(ef.succ(&lower_bound).unwrap() == (i, *v));
+                assert!(ef.succ(lower_bound).unwrap() == (i, *v));
                 lower_bound += 1;
                 if lower_bound > values[i] {
                     break;
@@ -114,7 +107,7 @@ fn test_elias_fano() -> Result<()> {
             }
         }
 
-        assert_eq!(None, ef.succ(&(last + 1)));
+        assert_eq!(None, ef.succ(last + 1));
 
         let mut lower_bound = 0;
         for (i, v) in values.iter().enumerate() {
@@ -122,7 +115,7 @@ fn test_elias_fano() -> Result<()> {
                 continue;
             }
             loop {
-                assert!(ef.succ_strict(&lower_bound).unwrap() == (i, *v));
+                assert!(ef.succ_strict(lower_bound).unwrap() == (i, *v));
                 lower_bound += 1;
                 if lower_bound >= values[i] {
                     break;
@@ -143,7 +136,7 @@ fn test_elias_fano() -> Result<()> {
                 continue;
             }
             loop {
-                assert!(ef.pred_strict(&upper_bound).unwrap() == (i, *v));
+                assert!(ef.pred_strict(upper_bound).unwrap() == (i, *v));
                 upper_bound += 1;
                 if i + 1 == values.len() || upper_bound > values[i + 1] {
                     break;
@@ -152,7 +145,7 @@ fn test_elias_fano() -> Result<()> {
         }
 
         for upper_bound in 0..first + 1 {
-            assert_eq!(None, ef.pred_strict(&upper_bound));
+            assert_eq!(None, ef.pred_strict(upper_bound));
         }
 
         let first = *values.first().unwrap();
@@ -166,7 +159,7 @@ fn test_elias_fano() -> Result<()> {
                 continue;
             }
             loop {
-                assert!(ef.pred(&upper_bound).unwrap() == (i, *v));
+                assert!(ef.pred(upper_bound).unwrap() == (i, *v));
                 upper_bound += 1;
                 if i + 1 == values.len() || upper_bound >= values[i + 1] {
                     break;
@@ -175,11 +168,35 @@ fn test_elias_fano() -> Result<()> {
         }
 
         for upper_bound in 0..first {
-            assert_eq!(None, ef.pred(&upper_bound));
+            assert_eq!(None, ef.pred(upper_bound));
         }
     }
 
     Ok(())
+}
+
+#[test]
+#[should_panic]
+fn test_too_many_values() {
+    let mut efb = EliasFanoBuilder::new(2, 10);
+    efb.push(0);
+    efb.push(1);
+    efb.push(2);
+}
+
+#[test]
+#[should_panic]
+fn test_non_monotone() {
+    let mut efb = EliasFanoBuilder::new(2, 10);
+    efb.push(1);
+    efb.push(0);
+}
+
+#[test]
+#[should_panic]
+fn test_too_large() {
+    let mut efb = EliasFanoBuilder::new(2, 10);
+    efb.push(11);
 }
 
 #[test]
@@ -194,12 +211,10 @@ fn test_epserde() -> Result<()> {
         let mut efb = EliasFanoBuilder::new(n, u);
         // push the values
         for value in values.iter() {
-            efb.push(*value)?;
+            efb.push(*value);
         }
         // Finish the creation of elias-fano
-        let ef: EliasFano = efb.build();
-        // Add the ones indices
-        let ef: EliasFano<SelectFixed1, BitFieldVec> = ef.convert_to().unwrap();
+        let ef = unsafe { efb.build().map_high_bits(SelectAdaptConst::<_, _>::new) };
 
         let tmp_file = std::env::temp_dir().join("test_serdes_ef.bin");
         let mut file = std::io::BufWriter::new(std::fs::File::create(&tmp_file)?);
@@ -207,10 +222,10 @@ fn test_epserde() -> Result<()> {
         drop(file);
         println!("{}", schema.to_csv());
 
-        let c = <EliasFano<SelectFixed1, BitFieldVec>>::mmap(
-            &tmp_file,
-            epserde::deser::Flags::empty(),
-        )?;
+        let c = <EliasFano<
+            SelectAdaptConst<BitVec<Box<[usize]>>, Box<[usize]>>,
+            BitFieldVec<usize, Box<[usize]>>,
+        >>::mmap(&tmp_file, epserde::deser::Flags::empty())?;
 
         for i in 0..n {
             assert_eq!(ef.get(i), c.get(i));
