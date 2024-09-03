@@ -46,11 +46,14 @@ impl Modulo2Equation {
     /// # Arguments
     ///
     /// * `variable` - The index of the variable to be added.
-    /// TODO -> va spiegato meglio il funzionamento se la lascio invariata
+    ///
+    /// # Panics
+    ///
+    /// The method panics if the variable is already present in the equation.
     pub fn add(&mut self, variable: usize) -> &mut Self {
         assert!(
             !self.bit_vector.get(variable),
-            "Variable already in equation"
+            "Variable {variable} already in equation"
         );
         self.bit_vector.set(variable, true);
         let variable = variable as u32;
@@ -95,8 +98,9 @@ impl Modulo2Equation {
     ///
     /// * `bits` - A bit vector represented as a slice of `usize`.
     ///
-    /// * `values` - A slice of `usize` representing the values associated with each variable.
-    fn scalar_product(bits: &[usize], values: &Vec<usize>) -> usize {
+    /// * `values` - A slice of `usize` representing the values associated
+    /// with each variable.
+    fn scalar_product(bits: &[usize], values: &[usize]) -> usize {
         let mut sum = 0;
         for i in 0..bits.len() {
             let offset = i * usize::BITS as usize;
@@ -111,7 +115,7 @@ impl Modulo2Equation {
     }
 
     /// Returns a vector of variables present in the equation.
-    fn variables(&self) -> Vec<usize> {
+    pub fn variables(&self) -> Vec<usize> {
         (0..self.bit_vector.len())
             .filter(|&x| self.bit_vector.get(x))
             .collect::<Vec<_>>()
@@ -138,8 +142,12 @@ impl Modulo2System {
     /// * `num_vars` - The total number of variables in the system.
     ///
     /// * `equations` - A vector of existing equations.
-    /// TODO -> va cambiato il tipo di equations (come da linee guida sul tipo dei parametri) -> va conseguentemente aggiornata la doc
-    fn from(num_vars: usize, equations: Vec<Modulo2Equation>) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the number of variables in each equation matches
+    /// the number of variables in the system.
+    pub unsafe fn from_parts(num_vars: usize, equations: Vec<Modulo2Equation>) -> Self {
         Modulo2System {
             num_vars: num_vars,
             equations: equations,
@@ -156,8 +164,8 @@ impl Modulo2System {
     ///
     /// # Arguments
     ///
-    /// * `solution` - A vector representing the proposed solution.
-    pub fn check(&self, solution: &Vec<usize>) -> bool {
+    /// * `solution` - A slice of `usize` representing the proposed solution.
+    pub fn check(&self, solution: &[usize]) -> bool {
         assert_eq!(solution.len(), self.num_vars, "The number of variables in the solution ({}) does not match the number of variables in the system ({})", solution.len(), self.num_vars);
         self.equations
             .iter()
@@ -172,6 +180,8 @@ impl Modulo2System {
         'main: for i in 0..self.equations.len() - 1 {
             ensure!(self.equations[i].first_var.is_some());
             for j in i + 1..self.equations.len() {
+                // SAFETY: to add the two equations, multiple references to the vector
+                // of equations are needed, one of which is mutable
                 let eq_j = unsafe { &*(&self.equations[j] as *const Modulo2Equation) };
                 let eq_i = &mut self.equations[i];
 
@@ -218,14 +228,14 @@ impl Modulo2System {
     ///
     /// # Arguments
     ///
-    /// * `system_op` - The system to be solved, il already exists.
+    /// * `system_op` - The system to be solved, if already exists.
     ///
-    /// * `var2_eq` - A vector of vectors describing, for each variable, the equations in which it appears.
+    /// * `var2_eq` - A vector of vectors describing, for each variable, the equations
+    /// in which it appears.
     ///
     /// * `c` - The vector of known terms, one for each equation.
     ///
     /// * `variable` - the variables with respect to which the system should be solved
-    /// TODO -> il metodo è statico perchè si può usare anche senza aver già costruito il sistema. Vale la pena specificare meglio?
     pub fn lazy_gaussian_elimination(
         system_op: Option<&mut Modulo2System>,
         var2_eq: &mut Vec<Vec<usize>>,
@@ -364,6 +374,8 @@ impl Modulo2System {
                     }
                     dense.push(equation.clone());
                 } else if priority[first] == 1 {
+                    // SAFETY: to add the equations, multiple references to the vector
+                    // of equations are needed, one of which is mutable
                     let equation = unsafe { &*(&equations[first] as *const Modulo2Equation) };
                     let mut word_index = 0;
                     while (equation.bit_vector.as_ref()[word_index] & idle_normalized[word_index])
@@ -397,7 +409,8 @@ impl Modulo2System {
             start = Instant::now();
         }
 
-        let mut dense_system = Modulo2System::from(num_vars, dense);
+        // SAFETY: the usage of the method is safe, as the equations have the right number of variables
+        let mut dense_system = unsafe { Modulo2System::from_parts(num_vars, dense) };
         let mut solution = dense_system.gaussian_elimination()?;
 
         #[cfg(feature = "time_log")]
