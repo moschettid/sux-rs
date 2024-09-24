@@ -83,10 +83,10 @@ fn gen_system(
 }
 
 pub fn main() {
-    for _ in 0..3 {
-        let mut rng = init_rng_from_u64(0);
-        for n_eqs in [10000, 20000, 30000, 40000] {
-            for n_vars_per_eq in [3, 4] {
+    for n_eqs in [1000, 10000, 100000] {
+        for n_vars_per_eq in [3, 4] {
+            for _ in 0..8 {
+                let mut rng = init_rng_from_u64(0);
                 loop {
                     let mut system;
                     let mut var2_eq;
@@ -110,6 +110,6 @@ pub fn main() {
                 }
             }
         }
-        println!();
+        //println!();
     }
 }

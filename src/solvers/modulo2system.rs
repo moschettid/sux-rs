@@ -266,6 +266,8 @@ impl Modulo2System {
             measures.push(num_equations as u128);
             measures.push(system.equations[0].variables().len() as u128); //Number of variables per equation
         }
+        #[cfg(feature = "time_log")]
+        let mut start = Instant::now();
 
         let mut weight: Vec<usize> = vec![0; num_vars];
         let mut priority: Vec<usize> = vec![0; num_equations];
@@ -313,9 +315,6 @@ impl Modulo2System {
             }
             eq.truncate(j);
         }
-
-        #[cfg(feature = "time_log")]
-        let mut start = Instant::now();
 
         let mut variables = vec![0; num_vars];
         {
@@ -405,7 +404,7 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_millis());
+            measures.push(start.elapsed().as_nanos());
             start = Instant::now();
         }
 
@@ -415,7 +414,7 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_millis());
+            measures.push(start.elapsed().as_nanos());
             start = Instant::now();
         }
 
@@ -429,7 +428,7 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_millis());
+            measures.push(start.elapsed().as_nanos());
             measures.push(measures[2] + measures[3] + measures[4]);
 
             let mut measures_csv = measures
