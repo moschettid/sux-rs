@@ -83,10 +83,11 @@ fn gen_system(
 }
 
 pub fn main() {
+    let seed = std::env::args().nth(1).unwrap().parse::<usize>().unwrap();
     for n_eqs in [1000, 10000, 100000] {
         for n_vars_per_eq in [3, 4] {
-            for _ in 0..8 {
-                let mut rng = init_rng_from_u64(0);
+            for _ in 0..10 {
+                let mut rng = init_rng_from_u64(seed);
                 loop {
                     let mut system;
                     let mut var2_eq;

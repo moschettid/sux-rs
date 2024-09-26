@@ -2,7 +2,7 @@ use crate::bits::bit_vec::BitVec;
 use anyhow::{bail, ensure, Result};
 use std::cmp::min;
 #[cfg(feature = "time_log")]
-use std::time::Instant;
+use std::time::SystemTime;
 
 /// An equation on **F**~2~
 #[derive(Clone, Debug)]
@@ -267,7 +267,7 @@ impl Modulo2System {
             measures.push(system.equations[0].variables().len() as u128); //Number of variables per equation
         }
         #[cfg(feature = "time_log")]
-        let mut start = Instant::now();
+        let mut start = SystemTime::now();
 
         let mut weight: Vec<usize> = vec![0; num_vars];
         let mut priority: Vec<usize> = vec![0; num_equations];
@@ -404,8 +404,8 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_nanos());
-            start = Instant::now();
+            measures.push(start.elapsed()?.as_nanos());
+            start = SystemTime::now();
         }
 
         // SAFETY: the usage of the method is safe, as the equations have the right number of variables
@@ -414,8 +414,8 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_nanos());
-            start = Instant::now();
+            measures.push(start.elapsed()?.as_nanos());
+            start = SystemTime::now();
         }
 
         for i in 0..solved.len() {
@@ -428,7 +428,7 @@ impl Modulo2System {
 
         #[cfg(feature = "time_log")]
         {
-            measures.push(start.elapsed().as_nanos());
+            measures.push(start.elapsed()?.as_nanos());
             measures.push(measures[2] + measures[3] + measures[4]);
 
             let mut measures_csv = measures
