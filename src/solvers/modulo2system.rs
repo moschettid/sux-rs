@@ -364,14 +364,16 @@ impl Modulo2System {
                 let first = equation_list.pop().unwrap();
 
                 if priority[first] == 0 {
-                    let equation = &equations[first];
+                    let equation = &mut equations[first];
                     if equation.is_unsolvable() {
                         bail!("System is unsolvable")
                     }
                     if equation.is_identity() {
                         continue;
                     }
-                    dense.push(equation.clone());
+                    let mut zero_eq = Modulo2Equation::new(0, 0);
+                    std::mem::swap(equation, &mut zero_eq);
+                    dense.push(zero_eq);
                 } else if priority[first] == 1 {
                     // SAFETY: to add the equations, multiple references to the vector
                     // of equations are needed, one of which is mutable
