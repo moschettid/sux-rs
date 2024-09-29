@@ -371,9 +371,7 @@ impl Modulo2System {
                     if equation.is_identity() {
                         continue;
                     }
-                    let mut zero_eq = Modulo2Equation::new(0, 0);
-                    std::mem::swap(equation, &mut zero_eq);
-                    dense.push(zero_eq);
+                    dense.push(equation);
                 } else if priority[first] == 1 {
                     // SAFETY: to add the equations, multiple references to the vector
                     // of equations are needed, one of which is mutable
