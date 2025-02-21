@@ -19,13 +19,15 @@
 //! The trait [`ToSig`] provides a standard way to generate signatures for a
 //! [`SigStore`].
 
-use super::spooky_short;
 use anyhow::Result;
 use epserde::prelude::*;
 use mem_dbg::{MemDbg, MemSize};
+use rapidhash::RapidInlineHasher;
 
 use rdst::RadixKey;
-use std::{collections::VecDeque, fs::File, io::*, marker::PhantomData};
+use std::{collections::VecDeque, fs::File, hash::Hasher, io::*, marker::PhantomData};
+
+use super::spooky_short;
 
 /// A signature and a value.
 
@@ -56,29 +58,49 @@ pub trait ToSig {
 
 impl ToSig for String {
     fn to_sig(key: &Self, seed: u64) -> [u64; 2] {
-        let spooky = spooky_short(key, seed);
-        [spooky[0], spooky[1]]
+        let mut rapid0 = RapidInlineHasher::new(seed);
+        let mut rapid1 = RapidInlineHasher::new(!seed);
+        let bytes = key.as_bytes();
+        rapid0.write(bytes);
+        rapid1.write(bytes);
+            
+        [rapid0.finish(), rapid1.finish()]
     }
 }
 
 impl ToSig for &String {
     fn to_sig(key: &Self, seed: u64) -> [u64; 2] {
-        let spooky = spooky_short(key, seed);
-        [spooky[0], spooky[1]]
+        let mut rapid0 = RapidInlineHasher::new(seed);
+        let mut rapid1 = RapidInlineHasher::new(!seed);
+        let bytes = key.as_bytes();
+        rapid0.write(bytes);
+        rapid1.write(bytes);
+            
+        [rapid0.finish(), rapid1.finish()]
     }
 }
 
 impl ToSig for str {
     fn to_sig(key: &Self, seed: u64) -> [u64; 2] {
-        let spooky = spooky_short(key, seed);
-        [spooky[0], spooky[1]]
+        let mut rapid0 = RapidInlineHasher::new(seed);
+        let mut rapid1 = RapidInlineHasher::new(!seed);
+        let bytes = key.as_bytes();
+        rapid0.write(bytes);
+        rapid1.write(bytes);
+            
+        [rapid0.finish(), rapid1.finish()]
     }
 }
 
 impl ToSig for &str {
     fn to_sig(key: &Self, seed: u64) -> [u64; 2] {
-        let spooky = spooky_short(key, seed);
-        [spooky[0], spooky[1]]
+        let mut rapid0 = RapidInlineHasher::new(seed);
+        let mut rapid1 = RapidInlineHasher::new(!seed);
+        let bytes = key.as_bytes();
+        rapid0.write(bytes);
+        rapid1.write(bytes);
+            
+        [rapid0.finish(), rapid1.finish()]
     }
 }
 
@@ -86,8 +108,13 @@ macro_rules! to_sig_prim {
     ($($ty:ty),*) => {$(
         impl ToSig for $ty {
             fn to_sig(key: &Self, seed: u64) -> [u64; 2] {
-                let spooky = spooky_short(&key.to_ne_bytes(), seed);
-                [spooky[0], spooky[1]]
+        let mut rapid0 = RapidInlineHasher::new(seed);
+        let mut rapid1 = RapidInlineHasher::new(!seed);
+        let bytes = key.to_ne_bytes();
+        rapid0.write(&bytes);
+        rapid1.write(&bytes);
+            
+        [rapid0.finish(), rapid1.finish()]
             }
         }
     )*};
