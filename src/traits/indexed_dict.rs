@@ -39,29 +39,50 @@
 //! implementation of `AsRef<T>` for `T`, as it happens in the case of
 //! [`Borrow`].
 //!
-//!
-//! It is suggested that any implementation of this trait also implements
-//! [`IntoIterator`] with `Item = Self::Output` on a reference. This property
-//! can be tested on a type `D` with the clause `where for<'a> &'a D:
-//! IntoIterator<Item = Self::Output>`. Many implementations offer also a
-//! convenience method `iter` that is equivalent to [`IntoIterator::into_iter`],
-//! and a method `iter_from` that returns an iterator starting at a given
-//! position in the dictionary.
+//! We suggest that every implementation of [`IndexedSeq`] also implements
+//! [`IntoIterator`]/[`IntoIteratoFrom`](crate::traits::iter::IntoIteratorFrom)
+//! with `Item = Self::Output` on a reference. This property can be tested on a
+//! type `T` with the clause `where for<'a> &'a T: IntoIteratorFrom<Item =
+//! Self::Output>` (or `where for<'a> &'a T: IntoIterator<Item = Self::Output>`,
+//! if you don't need to select the starting position). Many implementations
+//! offer also equivalent `iter`/`iter_from` convenience methods.
 
+use ambassador::delegatable_trait;
 use impl_tools::autoimpl;
 use std::borrow::Borrow;
 
 /// The types of the dictionary.
 #[autoimpl(for<T: trait + ?Sized> &T, &mut T, Box<T>)]
+#[delegatable_trait]
 pub trait Types {
     type Input: PartialEq<Self::Output> + PartialEq + ?Sized;
     type Output: PartialEq<Self::Input> + PartialEq;
 }
 
-/// Positional access to the dictionary.
+/// Access by position to the dictionary.
+///
+/// # Notes
+///
+/// This trait does not include an `iter` iteration method with a default
+/// implementation, even it would be convenient, because it would cause
+/// significant problems with structures that have their own implementation of
+/// the method, and in which the implementation is dependent on additional trait
+/// bounds (see, e.g., [`EliasFano`](crate::dict::elias_fano::EliasFano)).
+///
+/// More precisely, the inherent implementation could not be used to override
+/// the default implementation, due to the additional trait bounds, and thus the
+/// selection of the inherent vs. default trait implementation would depend on
+/// the type of the variable, which might lead to efficiency bugs difficult to
+/// diagnose. Having a different name for the trait and inherent iteration
+/// method would make the call predictable, but it would be less ergonomic.
+///
+/// The (pretty standard) strategy outlined in the [module
+/// documentation](crate::traits::indexed_dict) is more flexible, as it allows
+/// to write methods that use the inherent implementation only if available.
 #[autoimpl(for<T: trait + ?Sized> &T, &mut T, Box<T>)]
+#[delegatable_trait]
 pub trait IndexedSeq: Types {
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Panics
     /// May panic if the index is not in in [0..[len](`IndexedSeq::len`)).
@@ -73,16 +94,16 @@ pub trait IndexedSeq: Types {
         }
     }
 
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Safety
     /// `index` must be in [0..[len](`IndexedSeq::len`)). No bounds checking is performed.
     unsafe fn get_unchecked(&self, index: usize) -> Self::Output;
 
-    /// Return the length (number of items) of the dictionary.
+    /// Returns the length (number of items) of the dictionary.
     fn len(&self) -> usize;
 
-    /// Return true if [`len`](`IndexedSeq::len`) is zero.
+    /// Returns true if [`len`](`IndexedSeq::len`) is zero.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -90,12 +111,13 @@ pub trait IndexedSeq: Types {
 
 /// Access by value to the dictionary.
 #[autoimpl(for<T: trait + ?Sized> &T, &mut T, Box<T>)]
+#[delegatable_trait]
 pub trait IndexedDict: Types {
-    /// Return the index of the given value if the dictionary contains it and
+    /// Returns the index of the given value if the dictionary contains it and
     /// `None` otherwise.
     fn index_of(&self, value: impl Borrow<Self::Input>) -> Option<usize>;
 
-    /// Return true if the dictionary contains the given value.
+    /// Returns true if the dictionary contains the given value.
     ///
     /// The default implementations just calls
     /// [`index_of`](`IndexedDict::index_of`).
@@ -105,12 +127,13 @@ pub trait IndexedDict: Types {
 }
 
 /// Unchecked successor computation for dictionaries whose values are monotonically increasing.
+#[delegatable_trait]
 pub trait SuccUnchecked: Types
 where
     Self::Input: PartialOrd<Self::Output> + PartialOrd,
     Self::Output: PartialOrd<Self::Input> + PartialOrd,
 {
-    /// Return the index of the successor and the successor of the given value.
+    /// Returns the index of the successor and the successor of the given value.
     ///
     /// The successor is the least value in the dictionary that is greater than
     /// or equal to the given value, if `STRICT` is `false`, or the least value
@@ -129,13 +152,28 @@ where
     ) -> (usize, Self::Output);
 }
 
+impl<I, O, T: SuccUnchecked<Input = I, Output = O> + ?Sized> SuccUnchecked for &T
+where
+    I: PartialOrd<O> + PartialOrd,
+    O: PartialOrd<I> + PartialOrd,
+{
+    #[inline(always)]
+    unsafe fn succ_unchecked<const STRICT: bool>(
+        &self,
+        value: impl Borrow<Self::Input>,
+    ) -> (usize, Self::Output) {
+        (*self).succ_unchecked::<STRICT>(value)
+    }
+}
+
 /// Successor computation for dictionaries whose values are monotonically increasing.
+#[delegatable_trait]
 pub trait Succ: SuccUnchecked + IndexedSeq
 where
     Self::Input: PartialOrd<Self::Output> + PartialOrd,
     Self::Output: PartialOrd<Self::Input> + PartialOrd,
 {
-    /// Return the index of the successor and the successor
+    /// Returns the index of the successor and the successor
     /// of the given value, or `None` if there is no successor.
     ///
     /// The successor is the least value in the dictionary
@@ -151,7 +189,7 @@ where
         }
     }
 
-    /// Return the index of the strict successor and the strict successor
+    /// Returns the index of the strict successor and the strict successor
     /// of the given value, or `None` if there is no strict successor.
     ///
     /// The strict successor is the least value in the dictionary
@@ -168,13 +206,30 @@ where
     }
 }
 
+impl<I, O, T: Succ<Input = I, Output = O> + ?Sized> Succ for &T
+where
+    I: PartialOrd<O> + PartialOrd,
+    O: PartialOrd<I> + PartialOrd,
+{
+    #[inline(always)]
+    fn succ(&self, value: impl Borrow<Self::Input>) -> Option<(usize, Self::Output)> {
+        (*self).succ(value)
+    }
+
+    #[inline(always)]
+    fn succ_strict(&self, value: impl Borrow<Self::Input>) -> Option<(usize, Self::Output)> {
+        (*self).succ_strict(value)
+    }
+}
+
 /// Unchecked predecessor computation for dictionaries whose values are monotonically increasing.
+#[delegatable_trait]
 pub trait PredUnchecked: Types
 where
     Self::Input: PartialOrd<Self::Output> + PartialOrd,
     Self::Output: PartialOrd<Self::Input> + PartialOrd,
 {
-    /// Return the index of the predecessor and the predecessor of the given
+    /// Returns the index of the predecessor and the predecessor of the given
     /// value, or `None` if there is no predecessor.
     ///
     /// The predecessor is the greatest value in the dictionary that is less
@@ -194,13 +249,28 @@ where
     ) -> (usize, Self::Output);
 }
 
+impl<I, O, T: PredUnchecked<Input = I, Output = O> + ?Sized> PredUnchecked for &T
+where
+    I: PartialOrd<O> + PartialOrd,
+    O: PartialOrd<I> + PartialOrd,
+{
+    #[inline(always)]
+    unsafe fn pred_unchecked<const STRICT: bool>(
+        &self,
+        value: impl Borrow<Self::Input>,
+    ) -> (usize, Self::Output) {
+        (*self).pred_unchecked::<STRICT>(value)
+    }
+}
+
 /// Predecessor computation for dictionaries whose values are monotonically increasing.
+#[delegatable_trait]
 pub trait Pred: PredUnchecked + IndexedSeq
 where
     Self::Input: PartialOrd<Self::Output> + PartialOrd,
     Self::Output: PartialOrd<Self::Input> + PartialOrd,
 {
-    /// Return the index of the predecessor and the predecessor
+    /// Returns the index of the predecessor and the predecessor
     /// of the given value, or `None` if there is no predecessor.
     ///
     /// The predecessor is the greatest value in the dictionary
@@ -216,7 +286,7 @@ where
         }
     }
 
-    /// Return the index of the strict predecessor and the strict predecessor
+    /// Returns the index of the strict predecessor and the strict predecessor
     /// of the given value, or `None` if there is no strict predecessor.
     ///
     /// The strict predecessor is the greatest value in the dictionary
@@ -230,5 +300,21 @@ where
         } else {
             Some(unsafe { self.pred_unchecked::<true>(value) })
         }
+    }
+}
+
+impl<I, O, T: Pred<Input = I, Output = O> + ?Sized> Pred for &T
+where
+    I: PartialOrd<O> + PartialOrd,
+    O: PartialOrd<I> + PartialOrd,
+{
+    #[inline(always)]
+    fn pred(&self, value: impl Borrow<Self::Input>) -> Option<(usize, Self::Output)> {
+        (*self).pred(value)
+    }
+
+    #[inline(always)]
+    fn pred_strict(&self, value: impl Borrow<Self::Input>) -> Option<(usize, Self::Output)> {
+        (*self).pred_strict(value)
     }
 }

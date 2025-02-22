@@ -220,7 +220,6 @@ impl<
 {
     /// Creates a new selection structure over a [`SelectZeroHinted`] with a specified
     /// distance between indexed zeros.
-
     pub fn new(bits: B) -> Self {
         let num_ones = bits.count_zeros();
         let num_bits = max(1, bits.len());
@@ -599,7 +598,7 @@ mod tests {
         let mut bits = BitVec::new(len);
         let mut pos = BTreeSet::new();
         for _ in 0..(1 << 13) / 4 * 3 {
-            let p = rng.gen_range(0..len);
+            let p = rng.random_range(0..len);
             if pos.insert(p) {
                 bits.set(p, true);
             }

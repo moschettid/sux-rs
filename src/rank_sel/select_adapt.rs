@@ -438,7 +438,6 @@ impl<B: AsRef<[usize]> + BitCount> SelectAdapt<B, Box<[usize]>> {
     ///   Increasing by one this value approximately doubles the space occupancy
     ///   and halves the length of sequential broadword searches. Typical values
     ///   are 3 and 4.
-
     pub fn with_inv(
         bits: B,
         log2_ones_per_inventory: usize,
@@ -834,7 +833,7 @@ mod tests {
         let mut bits = BitVec::new(len);
         let mut pos = BTreeSet::new();
         for _ in 0..(1 << 13) / 4 * 3 {
-            let p = rng.gen_range(0..len);
+            let p = rng.random_range(0..len);
             if pos.insert(p) {
                 bits.set(p, true);
             }

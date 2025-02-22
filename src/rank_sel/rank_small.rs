@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-use ambassador::Delegate;
+use ambassador::{delegatable_trait, Delegate};
 use epserde::*;
 use mem_dbg::*;
-use std::ptr::{addr_of, read_unaligned, write_unaligned};
+use std::ptr::{addr_of, addr_of_mut, read_unaligned, write_unaligned};
 
 use crate::{
     prelude::{BitLength, BitVec, Rank, RankHinted, RankUnchecked, RankZero},
@@ -28,13 +28,26 @@ use crate::traits::rank_sel::ambassador_impl_SelectZeroHinted;
 use crate::traits::rank_sel::ambassador_impl_SelectZeroUnchecked;
 use std::ops::Index;
 
+/// A trait abstracting the access to the internal counters of a [`RankSmall`]
+/// structure.
+///
+/// This trait is implemented by [`RankSmall`], but it is propagated by
+/// [`SelectSmall`](crate::rank_sel::SelectSmall) and
+/// [`SelectZeroSmall`](crate::rank_sel::SelectZeroSmall), making it
+/// possible to combine selection structures arbitarily.
+#[delegatable_trait]
+pub trait SmallCounters<const NUM_U32S: usize, const COUNTER_WIDTH: usize> {
+    fn upper_counts(&self) -> &[usize];
+    fn counts(&self) -> &[Block32Counters<NUM_U32S, COUNTER_WIDTH>];
+}
+
 /// A family of ranking structures using very little additional space but with
 /// slower operations than [`Rank9`](super::Rank9).
 ///
 /// [`RankSmall`] structures combine two ideas from [`Rank9`](super::Rank9),
 /// that is, the interleaving of absolute and relative counters and the storage
 /// of implicit counters using zero extension, and a design trick from from
-/// [poppy](https://link.springer.com/chapter/10.1007/978-3-642-38527-8_15),
+/// [`poppy`](https://link.springer.com/chapter/10.1007/978-3-642-38527-8_15),
 /// that is, that the structures are actually designed around bit vectors of at
 /// most 2³² bits. This allows the use of 32-bit counters, which use less space,
 /// at the expense of a high-level additional list of 64-bit counters that
@@ -60,6 +73,11 @@ use std::ops::Index;
 /// The first structure is a space-savvy version of [`Rank9`](super::Rank9),
 /// while the other ones provide increasing less space usage at the expense of
 /// slower operations.
+///
+/// For each combination there are corresponding selection structures
+/// [`SelectSmall`](crate::rank_sel::SelectSmall) and
+/// [`SelectZeroSmall`](crate::rank_sel::SelectZeroSmall) that can be used to
+/// perform selection operations.
 ///
 /// `RankSmall<1, 11>` is similar to
 /// [`poppy`](https://link.springer.com/chapter/10.1007/978-3-642-38527-8_15),
@@ -97,7 +115,6 @@ use std::ops::Index;
 /// assert_eq!(rank_small[5], true);
 /// assert_eq!(rank_small[6], false);
 /// assert_eq!(rank_small[7], true);
-
 #[derive(Epserde, Debug, Clone, MemDbg, MemSize, Delegate)]
 #[delegate(AsRef<[usize]>, target = "bits")]
 #[delegate(Index<usize>, target = "bits")]
@@ -143,7 +160,6 @@ pub struct RankSmall<
 /// assert_eq!(rank_small.rank(0), 0);
 /// assert_eq!(rank_small.rank(1), 1);
 /// ```
-
 #[macro_export]
 macro_rules! rank_small {
     (0 ; $bits: expr) => {
@@ -180,14 +196,14 @@ impl Block32Counters<2, 9> {
 
     #[inline(always)]
     pub fn rel(&self, word: usize) -> usize {
-        (self.all_rel() >> (9 * (word ^ 7)) & ((1 << 9) - 1)) as usize
+        ((self.all_rel() >> (9 * (word ^ 7))) & ((1 << 9) - 1)) as usize
     }
 
     #[inline(always)]
     pub fn set_rel(&mut self, word: usize, counter: usize) {
         let mut packed = unsafe { read_unaligned(addr_of!(self.relative) as *const u64) };
         packed |= (counter as u64) << (9 * (word ^ 7));
-        unsafe { write_unaligned(addr_of!(self.relative) as *mut u64, packed) };
+        unsafe { write_unaligned(addr_of_mut!(self.relative) as *mut u64, packed) };
     }
 }
 
@@ -199,7 +215,7 @@ impl Block32Counters<1, 9> {
 
     #[inline(always)]
     pub fn rel(&self, word: usize) -> usize {
-        self.relative[0] as usize >> (9 * (word ^ 3)) & ((1 << 9) - 1)
+        (self.relative[0] as usize >> (9 * (word ^ 3))) & ((1 << 9) - 1)
     }
 
     #[inline(always)]
@@ -216,7 +232,7 @@ impl Block32Counters<1, 10> {
 
     #[inline(always)]
     pub fn rel(&self, word: usize) -> usize {
-        self.relative[0] as usize >> (10 * (word ^ 3)) & ((1 << 10) - 1)
+        (self.relative[0] as usize >> (10 * (word ^ 3))) & ((1 << 10) - 1)
     }
 
     #[inline(always)]
@@ -233,7 +249,7 @@ impl Block32Counters<1, 11> {
 
     #[inline(always)]
     pub fn rel(&self, word: usize) -> usize {
-        self.relative[0] as usize >> (11 * (word ^ 3)) & ((1 << 11) - 1)
+        (self.relative[0] as usize >> (11 * (word ^ 3))) & ((1 << 11) - 1)
     }
 
     #[inline(always)]
@@ -257,7 +273,7 @@ impl Block32Counters<3, 13> {
 
     #[inline(always)]
     pub fn rel(&self, word: usize) -> usize {
-        (self.all_rel() >> (13 * (word ^ 7)) & ((1 << 13) - 1)) as usize
+        ((self.all_rel() >> (13 * (word ^ 7))) & ((1 << 13) - 1)) as usize
     }
 
     #[inline(always)]
@@ -268,14 +284,14 @@ impl Block32Counters<3, 13> {
         #[cfg(target_endian = "little")]
         unsafe {
             write_unaligned(
-                addr_of!(*self) as *mut u128,
-                packed << 32 | self.absolute as u128,
+                addr_of_mut!(*self) as *mut u128,
+                (packed << 32) | self.absolute as u128,
             )
         };
         #[cfg(target_endian = "big")]
         unsafe {
             write_unaligned(
-                addr_of!(*self) as *mut u128,
+                addr_of_mut!(*self) as *mut u128,
                 packed | (self.absolute as u128) << 96,
             );
         };
@@ -479,6 +495,25 @@ impl<const NUM_U32S: usize, const COUNTER_WIDTH: usize, B: BitLength, C1, C2> Bi
     #[inline(always)]
     fn count_ones(&self) -> usize {
         self.num_ones
+    }
+}
+
+impl<
+        const NUM_U32S: usize,
+        const COUNTER_WIDTH: usize,
+        B,
+        C1: AsRef<[usize]>,
+        C2: AsRef<[Block32Counters<NUM_U32S, COUNTER_WIDTH>]>,
+    > SmallCounters<NUM_U32S, COUNTER_WIDTH> for RankSmall<NUM_U32S, COUNTER_WIDTH, B, C1, C2>
+{
+    #[inline(always)]
+    fn upper_counts(&self) -> &[usize] {
+        self.upper_counts.as_ref()
+    }
+
+    #[inline(always)]
+    fn counts(&self) -> &[Block32Counters<NUM_U32S, COUNTER_WIDTH>] {
+        self.counts.as_ref()
     }
 }
 

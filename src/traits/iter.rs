@@ -5,7 +5,25 @@
  * SPDX-License-Identifier: Apache-2.0 OR LGPL-2.1-or-later
  */
 
-//! Unchecked iterators.
+//! Additional iteration-related traits.
+
+use impl_tools::autoimpl;
+
+/// Conversion into an [`Iterator`] starting from a given position.
+///
+/// This trait is similar to [`IntoIterator`], but it allows to specify a
+/// starting position for the iteration. Calling
+/// [`into_iter`](IntoIterator::into_iter) followed by a call to
+/// [`skip`](Iterator::skip) would be sufficient, but for many compressed and
+/// succinct data structures the setup of an iterator can be expensive, and that
+/// setup is usually required again after a skip.
+pub trait IntoIteratorFrom: IntoIterator {
+    /// Which kind of iterator are we turning this into?
+    type IntoIterFrom: Iterator<Item = <Self as IntoIterator>::Item>;
+
+    /// Creates an iterator from a value and a starting position.
+    fn into_iter_from(self, from: usize) -> Self::IntoIterFrom;
+}
 
 /// A trait for iterating on values very quickly and very unsafely.
 ///
@@ -14,6 +32,7 @@
 /// that the iteration is safe, and can use this unsafe
 /// trait to iterate very cheaply over each structure. See the implementation
 /// of [`EliasFanoIterator`](crate::dict::elias_fano::EliasFanoIterator) for an example.
+#[autoimpl(for<T: trait + ?Sized> &mut T, Box<T>)]
 pub trait UncheckedIterator {
     type Item;
     /// Return the next item in the iterator. If there is no next item,

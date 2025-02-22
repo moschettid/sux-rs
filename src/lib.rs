@@ -33,7 +33,6 @@ pub mod prelude {
     pub use crate::solvers::*;
     pub use crate::traits::bit_field_slice;
     pub use crate::traits::*;
-    pub use crate::DivCeilUnchecked;
 }
 
 #[ambassador::delegatable_trait_remote]
@@ -47,32 +46,7 @@ pub(crate) trait Index<Idx> {
     fn index(&self, index: Idx) -> &Self::Output;
 }
 
-/// A trait for performing division with ceiling rounding without checking for
-/// division by zero or overflow.
-pub trait DivCeilUnchecked {
-    /// Divides `self` by `rhs` and returns the result rounded up to the nearest
-    /// integer.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use sux::prelude::*;
-    /// assert_eq!(5_usize.div_ceil_unchecked(2), 3);
-    /// assert_eq!(10_u64.div_ceil_unchecked(3), 4);
-    /// ```
-    fn div_ceil_unchecked(self, rhs: Self) -> Self;
-}
-
-impl DivCeilUnchecked for usize {
-    #[inline(always)]
-    fn div_ceil_unchecked(self, rhs: Self) -> Self {
-        (self + rhs - 1) / rhs
-    }
-}
-
-impl DivCeilUnchecked for u64 {
-    #[inline(always)]
-    fn div_ceil_unchecked(self, rhs: Self) -> Self {
-        (self + rhs - 1) / rhs
-    }
-}
+/// Parallel iterators performing very fast operations, such as [zeroing a
+/// bit](crate::bits::BitVec::reset) vector, should pass this argument to
+/// [IndexedParallelIterator::with_min_len](`rayon::iter::IndexedParallelIterator::with_min_len`).
+pub const RAYON_MIN_LEN: usize = 100_000;

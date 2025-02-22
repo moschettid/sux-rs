@@ -67,6 +67,10 @@
 use common_traits::*;
 use core::sync::atomic::*;
 use mem_dbg::{MemDbg, MemSize};
+#[cfg(feature = "rayon")]
+use rayon::iter::{
+    IndexedParallelIterator, IntoParallelRefIterator, IntoParallelRefMutIterator, ParallelIterator,
+};
 use std::marker::PhantomData;
 
 /// A derived trait that the types used as a parameter for [`BitFieldSlice`] must satisfy.
@@ -141,7 +145,7 @@ pub trait BitFieldSlice<W: Word>: BitFieldSliceCore<W> {
 
 /// A mutable slice of bit fields of constant bit width.
 pub trait BitFieldSliceMut<W: Word>: BitFieldSliceCore<W> {
-    /// Return the mask to apply to values to ensure they fit in
+    /// Returns the mask to apply to values to ensure they fit in
     /// [`bit_width`](BitFieldSliceCore::bit_width) bits.
     #[inline(always)]
     fn mask(&self) -> W {
@@ -186,6 +190,10 @@ pub trait BitFieldSliceMut<W: Word>: BitFieldSliceCore<W> {
     /// Sets all values to zero.
     fn reset(&mut self);
 
+    /// Sets all values to zero using a parallel implementation.
+    #[cfg(feature = "rayon")]
+    fn par_reset(&mut self);
+
     /// Applies a function to all elements of the slice in place without
     /// checking [bit widths](BitFieldSliceCore::bit_width).
     ///
@@ -202,7 +210,6 @@ pub trait BitFieldSliceMut<W: Word>: BitFieldSliceCore<W> {
     /// # Safety
     /// The function must return a value that fits the the [bit
     ///  width](BitFieldSliceCore::bit_width) of the slice.
-
     unsafe fn apply_in_place_unchecked<F>(&mut self, mut f: F)
     where
         F: FnMut(W) -> W,
@@ -269,14 +276,14 @@ pub trait AtomicBitFieldSlice<W: Word + IntoAtomic>: BitFieldSliceCore<W::Atomic
 where
     W::AtomicType: AtomicUnsignedInt + AsBytes,
 {
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Safety
     /// `index` must be in [0..[len](`BitFieldSliceCore::len`)).
     /// No bound or bit-width check is performed.
     unsafe fn get_atomic_unchecked(&self, index: usize, order: Ordering) -> W;
 
-    /// Return the value at the specified index.
+    /// Returns the value at the specified index.
     ///
     /// # Panics
     /// May panic if the index is not in in [0..[len](`BitFieldSliceCore::len`))
@@ -285,7 +292,7 @@ where
         unsafe { self.get_atomic_unchecked(index, order) }
     }
 
-    /// Set the element of the slice at the specified index.
+    /// Sets the element of the slice at the specified index.
     ///
     /// # Safety
     /// - `index` must be in [0..[len](`BitFieldSliceCore::len`));
@@ -294,7 +301,7 @@ where
     /// No bound or bit-width check is performed.
     unsafe fn set_atomic_unchecked(&self, index: usize, value: W, order: Ordering);
 
-    /// Set the element of the slice at the specified index.
+    /// Setss the element of the slice at the specified index.
     ///
     /// May panic if the index is not in in [0..[len](`BitFieldSliceCore::len`))
     /// or the value does not fit in [`BitFieldSliceCore::bit_width`] bits.
@@ -315,12 +322,19 @@ where
         }
     }
 
-    /// Set all values to zero.
+    /// Sets all values to zero.
     ///
-    /// This takes a mutable reference because usually
-    /// we need to reset a data structure to re-use it, so this makes it
-    /// impossible to have left any other reference to it.
+    /// This method takes an exclusive reference because usually one needs to
+    /// reset a vector to reuse it, and the mutable reference makes it
+    /// impossible to have any other reference hanging around.
     fn reset_atomic(&mut self, order: Ordering);
+
+    /// Sets all values to zero using a parallel implementation.
+    ///
+    /// See [`reset_atomic`](AtomicBitFieldSlice::reset_atomic) for more
+    /// details.
+    #[cfg(feature = "rayon")]
+    fn par_reset_atomic(&mut self, order: Ordering);
 }
 
 /// An [`Iterator`] implementation returning the elements of a [`BitFieldSlice`].
@@ -346,7 +360,7 @@ impl<'a, V: Word, B: BitFieldSlice<V>> BitFieldSliceIterator<'a, V, B> {
     }
 }
 
-impl<'a, W: Word, B: BitFieldSlice<W>> Iterator for BitFieldSliceIterator<'a, W, B> {
+impl<W: Word, B: BitFieldSlice<W>> Iterator for BitFieldSliceIterator<'_, W, B> {
     type Item = W;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index < self.slice.len() {
@@ -412,6 +426,14 @@ macro_rules! impl_mut {
                     unsafe{self.set_unchecked(idx, 0)};
                 }
             }
+
+            #[cfg(feature = "rayon")]
+            fn par_reset(&mut self) {
+                self.as_mut()
+                    .par_iter_mut()
+                    .with_min_len(crate::RAYON_MIN_LEN)
+                    .for_each(|w| { *w = 0 });
+            }
         }
     )*};
 }
@@ -455,6 +477,14 @@ macro_rules! impl_atomic {
                 for idx in 0..self.len() {
                     unsafe { self.set_atomic_unchecked(idx, 0, order) };
                 }
+            }
+
+            #[cfg(feature = "rayon")]
+            fn par_reset_atomic(&mut self, order: Ordering) {
+                self.as_ref()
+                    .par_iter()
+                    .with_min_len(crate::RAYON_MIN_LEN)
+                    .for_each(|w| w.store(0, order));
             }
         }
     };
@@ -501,6 +531,12 @@ where
     #[inline(always)]
     fn set(&self, index: usize, value: W, order: Ordering) {
         self.set_atomic(index, value, order)
+    }
+
+    /// Delegates to [`AtomicBitFieldSlice::reset_atomic`]
+    #[inline(always)]
+    fn reset(&mut self, order: Ordering) {
+        self.reset_atomic(order);
     }
 }
 

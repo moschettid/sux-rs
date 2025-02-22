@@ -16,7 +16,9 @@ fn test() {
         .chain((100_000..1_000_000).step_by(100_000));
     let density = 0.5;
     for len in lens {
-        let bits = (0..len).map(|_| rng.gen_bool(density)).collect::<BitVec>();
+        let bits = (0..len)
+            .map(|_| rng.random_bool(density))
+            .collect::<BitVec>();
         let rank9: Rank9 = Rank9::new(bits.clone());
 
         let mut ranks = Vec::with_capacity(len);
@@ -28,8 +30,8 @@ fn test() {
             }
         }
 
-        for i in 0..bits.len() {
-            assert_eq!(rank9.rank(i), ranks[i]);
+        for (i, &r) in ranks.iter().enumerate() {
+            assert_eq!(rank9.rank(i), r);
         }
         assert_eq!(rank9.rank(bits.len() + 1), bits.count_ones());
     }

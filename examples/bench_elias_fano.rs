@@ -19,20 +19,16 @@ use sux::prelude::*;
 #[derive(Parser, Debug)]
 #[command(about = "Benchmarks Elias-Fano", long_about = None)]
 struct Args {
-    /// The number of elements
+    /// The number of elements in the list.
     n: usize,
 
-    /// The size of the universe
+    /// The size of the universe.
     u: usize,
 
-    /// The number of values to test
+    /// The number of values to test.
     t: usize,
 
-    /// The number of test repetitions
-    #[arg(short, long, default_value = "0.5")]
-    density: f64,
-
-    /// The number of test repetitions
+    /// The number of test repetitions.
     #[arg(short, long, default_value = "10")]
     repeats: usize,
 }
@@ -46,7 +42,7 @@ fn main() -> Result<()> {
     let mut values = Vec::with_capacity(args.n);
     let mut rng = SmallRng::seed_from_u64(0);
     for _ in 0..args.n {
-        values.push(rng.gen_range(0..args.u));
+        values.push(rng.random_range(0..args.u));
     }
     values.sort();
     // Build Elias-Fano
@@ -59,15 +55,16 @@ fn main() -> Result<()> {
     for value in &values {
         elias_fano_builder.push(*value);
     }
-    const FIXED2_LOG2_ONES_PER_INVENTORY: usize = 10;
-    const FIXED2_LOG2_U64_PER_INVENTORY: usize = 2;
+    // Same as defaults
+    const LOG2_ONES_PER_INVENTORY: usize = 12;
+    const LOG2_U64_PER_INVENTORY: usize = 3;
     // Add an index on zeros
     let elias_fano_s: EliasFano<
         SelectZeroAdaptConst<
-            SelectAdaptConst<_, _, FIXED2_LOG2_ONES_PER_INVENTORY, FIXED2_LOG2_U64_PER_INVENTORY>,
+            SelectAdaptConst<_, _, LOG2_ONES_PER_INVENTORY, LOG2_U64_PER_INVENTORY>,
             _,
-            FIXED2_LOG2_ONES_PER_INVENTORY,
-            FIXED2_LOG2_U64_PER_INVENTORY,
+            LOG2_ONES_PER_INVENTORY,
+            LOG2_U64_PER_INVENTORY,
         >,
     > = unsafe {
         elias_fano_builder
@@ -82,7 +79,7 @@ fn main() -> Result<()> {
 
     let mut ranks = Vec::with_capacity(args.t);
     for _ in 0..args.t {
-        ranks.push(rng.gen_range(0..args.n));
+        ranks.push(rng.random_range(0..args.n));
     }
 
     for _ in 0..args.repeats {
@@ -106,7 +103,7 @@ fn main() -> Result<()> {
         for _ in 0..args.t {
             black_box(
                 elias_fano_s
-                    .succ(rng.gen_range(0..args.u))
+                    .succ(rng.random_range(0..args.u))
                     .unwrap_or((0, 0))
                     .0,
             );
@@ -118,7 +115,7 @@ fn main() -> Result<()> {
         for _ in 0..args.t {
             black_box(unsafe {
                 elias_fano_s
-                    .succ_unchecked::<false>(rng.gen_range(0..upper_bound))
+                    .succ_unchecked::<false>(rng.random_range(0..upper_bound))
                     .0
             });
         }
@@ -130,7 +127,7 @@ fn main() -> Result<()> {
         for _ in 0..args.t {
             black_box(
                 elias_fano_s
-                    .pred(rng.gen_range(first..args.u))
+                    .pred(rng.random_range(first..args.u))
                     .unwrap_or((0, 0))
                     .0,
             );
@@ -141,7 +138,7 @@ fn main() -> Result<()> {
         for _ in 0..args.t {
             black_box(unsafe {
                 elias_fano_s
-                    .pred_unchecked::<false>(rng.gen_range(first..args.u))
+                    .pred_unchecked::<false>(rng.random_range(first..args.u))
                     .0
             });
         }
