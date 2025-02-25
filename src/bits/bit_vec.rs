@@ -22,7 +22,7 @@
 //!
 //! Note that nothing is assumed about the content of the backend outside the
 //! bits of the bit vector. Moreover, the content of the backend outside of
-//! the bit vector is never modified by the methods of this class.
+//! the bit vector is never modified by the methods of this structure.
 //!
 //! It is possible to juggle between the three flavors using [`From`]/[`Into`].
 //!
@@ -81,7 +81,10 @@ use std::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use crate::traits::rank_sel::*;
+use crate::{
+    traits::rank_sel::*,
+    utils::{transmute_boxed_slice, transmute_vec},
+};
 
 const BITS: usize = usize::BITS as usize;
 
@@ -123,7 +126,6 @@ const BITS: usize = usize::BITS as usize;
 /// assert_eq!(b[4], false);
 /// assert_eq!(b[5], false);
 /// ```
-
 #[macro_export]
 macro_rules! bit_vec {
     () => {
@@ -269,6 +271,11 @@ impl<B: AsRef<[usize]> + AsMut<[usize]>> BitVec<B> {
         }
     }
 
+    /// Set all bits to zero.
+    pub fn reset(&mut self) {
+        self.fill(false);
+    }
+
     /// Flip all bits.
     ///
     /// If the feature "rayon" is enabled, this method is computed in parallel.
@@ -302,7 +309,7 @@ impl BitVec<Vec<usize>> {
 
     /// Creates a new bit vector of length `len` initialized to `value`.
     pub fn with_value(len: usize, value: bool) -> Self {
-        let n_of_words = (len + BITS - 1) / BITS;
+        let n_of_words = len.div_ceil(BITS);
         let extra_bits = (n_of_words * BITS) - len;
         let word_value = if value { !0 } else { 0 };
         let mut bits = vec![word_value; n_of_words];
@@ -356,7 +363,7 @@ impl BitVec<Vec<usize>> {
         // TODO: rewrite by word
         if new_len > self.len {
             if new_len > self.bits.len() * BITS {
-                self.bits.resize((new_len + BITS - 1) / BITS, 0);
+                self.bits.resize(new_len.div_ceil(BITS), 0);
             }
             for i in self.len..new_len {
                 unsafe {
@@ -529,7 +536,7 @@ impl<B: AsRef<[usize]>> fmt::Display for BitVec<B> {
     }
 }
 
-// An iterator over the bits of this bit vector as booleans.
+// An iterator over the bits of the bit vector as booleans.
 #[derive(Debug, Clone, MemDbg, MemSize)]
 pub struct BitIterator<'a, B> {
     bits: &'a B,
@@ -550,7 +557,7 @@ impl<'a, B: AsRef<[usize]>> IntoIterator for &'a BitVec<B> {
     }
 }
 
-impl<'a, B: AsRef<[usize]>> Iterator for BitIterator<'a, B> {
+impl<B: AsRef<[usize]>> Iterator for BitIterator<'_, B> {
     type Item = bool;
     fn next(&mut self) -> Option<bool> {
         if self.next_bit_pos == self.len {
@@ -591,7 +598,7 @@ impl<'a, B: AsRef<[usize]>> OnesIterator<'a, B> {
     }
 }
 
-impl<'a, B: AsRef<[usize]>> Iterator for OnesIterator<'a, B> {
+impl<B: AsRef<[usize]>> Iterator for OnesIterator<'_, B> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -643,7 +650,7 @@ impl<'a, B: AsRef<[usize]>> ZerosIterator<'a, B> {
     }
 }
 
-impl<'a, B: AsRef<[usize]>> Iterator for ZerosIterator<'a, B> {
+impl<B: AsRef<[usize]>> Iterator for ZerosIterator<'_, B> {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -670,7 +677,7 @@ impl<'a, B: AsRef<[usize]>> Iterator for ZerosIterator<'a, B> {
 }
 
 impl<B: AsRef<[usize]>> BitVec<B> {
-    // Returns an iterator over the bits of this bit vector.
+    // Returns an iterator over the bits of the bit vector.
     #[inline(always)]
     pub fn iter(&self) -> BitIterator<B> {
         self.into_iter()
@@ -807,6 +814,11 @@ impl<B: AsRef<[AtomicUsize]>> AtomicBitVec<B> {
         }
     }
 
+    /// Set all bits to zero.
+    pub fn reset(&mut self, ordering: Ordering) {
+        self.fill(false, ordering);
+    }
+
     /// Flip all bits.
     ///
     /// If the feature "rayon" is enabled, this method is computed in parallel.
@@ -848,7 +860,7 @@ impl AtomicBitVec<Vec<AtomicUsize>> {
 
     /// Creates a new atomic bit vector of length `len` initialized to `value`.
     pub fn with_value(len: usize, value: bool) -> Self {
-        let n_of_words = (len + BITS - 1) / BITS;
+        let n_of_words = len.div_ceil(BITS);
         let extra_bits = (n_of_words * BITS) - len;
         let word_value = if value { !0 } else { 0 };
         let mut bits = (0..n_of_words)
@@ -923,7 +935,7 @@ impl<B: AsRef<[AtomicUsize]>> BitCount for AtomicBitVec<B> {
 impl<W: IntoAtomic> From<BitVec<Vec<W>>> for AtomicBitVec<Vec<W::AtomicType>> {
     fn from(value: BitVec<Vec<W>>) -> Self {
         AtomicBitVec {
-            bits: unsafe { core::mem::transmute::<Vec<W>, Vec<W::AtomicType>>(value.bits) },
+            bits: unsafe { transmute_vec::<W, W::AtomicType>(value.bits) },
             len: value.len,
         }
     }
@@ -952,7 +964,7 @@ impl<'a, W: IntoAtomic> From<BitVec<&'a mut [W]>> for AtomicBitVec<&'a mut [W::A
 impl<W: IntoAtomic> From<AtomicBitVec<Vec<W::AtomicType>>> for BitVec<Vec<W>> {
     fn from(value: AtomicBitVec<Vec<W::AtomicType>>) -> Self {
         BitVec {
-            bits: unsafe { core::mem::transmute::<Vec<W::AtomicType>, Vec<W>>(value.bits) },
+            bits: unsafe { transmute_vec::<W::AtomicType, W>(value.bits) },
             len: value.len,
         }
     }
@@ -961,7 +973,7 @@ impl<W: IntoAtomic> From<AtomicBitVec<Vec<W::AtomicType>>> for BitVec<Vec<W>> {
 impl<W: IntoAtomic> From<AtomicBitVec<Box<[W::AtomicType]>>> for BitVec<Box<[W]>> {
     fn from(value: AtomicBitVec<Box<[W::AtomicType]>>) -> Self {
         BitVec {
-            bits: unsafe { core::mem::transmute::<Box<[W::AtomicType]>, Box<[W]>>(value.bits) },
+            bits: unsafe { transmute_boxed_slice::<W::AtomicType, W>(value.bits) },
             len: value.len,
         }
     }
@@ -970,7 +982,7 @@ impl<W: IntoAtomic> From<AtomicBitVec<Box<[W::AtomicType]>>> for BitVec<Box<[W]>
 impl<W: IntoAtomic> From<BitVec<Box<[W]>>> for AtomicBitVec<Box<[W::AtomicType]>> {
     fn from(value: BitVec<Box<[W]>>) -> Self {
         AtomicBitVec {
-            bits: unsafe { core::mem::transmute::<Box<[W]>, Box<[W::AtomicType]>>(value.bits) },
+            bits: unsafe { transmute_boxed_slice::<W, W::AtomicType>(value.bits) },
             len: value.len,
         }
     }
@@ -1057,7 +1069,7 @@ impl<'a, B: AsRef<[AtomicUsize]>> IntoIterator for &'a mut AtomicBitVec<B> {
     }
 }
 
-impl<'a, B: AsRef<[AtomicUsize]>> Iterator for AtomicBitIterator<'a, B> {
+impl<B: AsRef<[AtomicUsize]>> Iterator for AtomicBitIterator<'_, B> {
     type Item = bool;
     fn next(&mut self) -> Option<bool> {
         if self.next_bit_pos == self.len {
@@ -1078,7 +1090,7 @@ impl<'a, B: AsRef<[AtomicUsize]>> Iterator for AtomicBitIterator<'a, B> {
 }
 
 impl<B: AsRef<[AtomicUsize]>> AtomicBitVec<B> {
-    // Returns an iterator over the bits of this bit vector.
+    // Returns an iterator over the bits of the bit vector.
     //
     // Note that this method takes a mutable reference to the bit vector,
     // so no outstanding references are allowed while iterating.

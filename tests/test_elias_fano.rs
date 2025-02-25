@@ -6,6 +6,8 @@
  */
 
 #![allow(clippy::type_complexity)]
+use std::iter::zip;
+
 use anyhow::Result;
 use epserde::prelude::*;
 use rand::rngs::SmallRng;
@@ -20,7 +22,7 @@ fn test_elias_fano_concurrent() -> Result<()> {
     use sux::dict::elias_fano::EliasFanoConcurrentBuilder;
     let mut rng = SmallRng::seed_from_u64(0);
     for (n, u) in [(10, 1000), (100, 1000), (100, 100), (1000, 100), (1000, 10)] {
-        let mut values = (0..n).map(|_| rng.gen_range(0..u)).collect::<Vec<_>>();
+        let mut values = (0..n).map(|_| rng.random_range(0..u)).collect::<Vec<_>>();
 
         values.sort();
 
@@ -41,7 +43,7 @@ fn test_elias_fano_concurrent() -> Result<()> {
 fn test_elias_fano() -> Result<()> {
     let mut rng = SmallRng::seed_from_u64(0);
     for (n, u) in [(10, 1000), (100, 1000), (100, 100), (1000, 100), (1000, 10)] {
-        let mut values = (0..n).map(|_| rng.gen_range(0..u)).collect::<Vec<_>>();
+        let mut values = (0..n).map(|_| rng.random_range(0..u)).collect::<Vec<_>>();
 
         values.sort();
 
@@ -200,10 +202,25 @@ fn test_too_large() {
 }
 
 #[test]
+#[should_panic]
+fn test_from_non_monotone() {
+    let _ef: EliasFano = vec![1, 0].into();
+}
+
+#[test]
+fn test_extend() {
+    let mut efb = EliasFanoBuilder::new(3, 10);
+    let v = vec![0, 1, 2];
+    efb.extend(v.clone());
+    let ef = efb.build();
+    zip(ef.iter(), v.iter()).for_each(|(a, b)| assert_eq!(a, *b));
+}
+
+#[test]
 fn test_epserde() -> Result<()> {
     let mut rng = SmallRng::seed_from_u64(0);
     for (n, u) in [(100, 1000), (100, 100), (1000, 100)] {
-        let mut values = (0..n).map(|_| rng.gen_range(0..u)).collect::<Vec<_>>();
+        let mut values = (0..n).map(|_| rng.random_range(0..u)).collect::<Vec<_>>();
 
         values.sort();
 
@@ -232,4 +249,35 @@ fn test_epserde() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[test]
+fn test_convenience_methods() {
+    let mut efb = EliasFanoBuilder::new(10, 100);
+    for i in 0..10 {
+        efb.push(i * 10);
+    }
+    let ef = efb.build_with_seq();
+    for i in 0..10 {
+        assert_eq!(ef.get(i), i * 10);
+    }
+
+    let mut efb = EliasFanoBuilder::new(10, 100);
+    for i in 0..10 {
+        efb.push(i * 10);
+    }
+    let ef = efb.build_with_dict();
+    for i in 0..10 {
+        assert_eq!(unsafe { ef.succ_unchecked::<false>(i * 10) }, (i, i * 10));
+    }
+
+    let mut efb = EliasFanoBuilder::new(10, 100);
+    for i in 0..10 {
+        efb.push(i * 10);
+    }
+    let ef = efb.build_with_seq_and_dict();
+    for i in 0..10 {
+        assert_eq!(ef.get(i), i * 10);
+        assert_eq!(ef.succ(i * 10).unwrap(), (i, i * 10));
+    }
 }

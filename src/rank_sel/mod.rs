@@ -113,11 +113,11 @@ pub use rank_small::*;
 mod select_small;
 pub use select_small::*;
 
+mod select_zero_small;
+pub use select_zero_small::*;
+
 mod rank9;
 pub use rank9::*;
 
 mod select9;
 pub use select9::*;
-
-mod simple_select;
-pub use simple_select::*;

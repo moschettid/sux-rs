@@ -17,17 +17,17 @@ use common_traits::SelectInWord;
 use epserde::Epserde;
 use mem_dbg::{MemDbg, MemSize};
 
-const ONES_STEP_9: usize = 1usize << 0
-    | 1usize << 9
-    | 1usize << 18
-    | 1usize << 27
-    | 1usize << 36
-    | 1usize << 45
-    | 1usize << 54;
+const ONES_STEP_9: usize = (1usize << 0)
+    | (1usize << 9)
+    | (1usize << 18)
+    | (1usize << 27)
+    | (1usize << 36)
+    | (1usize << 45)
+    | (1usize << 54);
 
 const MSBS_STEP_9: usize = 0x100usize * ONES_STEP_9;
 
-const ONES_STEP_16: usize = 1usize << 0 | 1usize << 16 | 1usize << 32 | 1usize << 48;
+const ONES_STEP_16: usize = (1usize << 0) | (1usize << 16) | (1usize << 32) | (1usize << 48);
 const MSBS_STEP_16: usize = 0x8000usize * ONES_STEP_16;
 
 macro_rules! ULEQ_STEP_9 {
@@ -161,11 +161,10 @@ impl<B: AsRef<[usize]> + BitLength, C: AsRef<[BlockCounters]>> Select9<Rank9<B, 
     pub fn new(rank9: Rank9<B, C>) -> Self {
         let num_bits = rank9.len();
         let num_words = (num_bits + 63) / 64;
-        let inventory_size =
-            (rank9.num_ones() + Self::ONES_PER_INVENTORY - 1) / Self::ONES_PER_INVENTORY;
+        let inventory_size = rank9.num_ones().div_ceil(Self::ONES_PER_INVENTORY);
 
         let u64_per_subinventory = 4;
-        let subinventory_size = (num_words + u64_per_subinventory - 1) / u64_per_subinventory;
+        let subinventory_size = num_words.div_ceil(u64_per_subinventory);
 
         let mut inventory = Vec::with_capacity(inventory_size + 1);
         let mut subinventory = vec![0; subinventory_size].into_boxed_slice();

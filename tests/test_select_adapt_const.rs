@@ -22,7 +22,7 @@ fn test() {
     for len in lens {
         for density in [0.1, 0.5, 0.9] {
             let bits: AddNumBits<_> = (0..len)
-                .map(|_| rng.gen_bool(density))
+                .map(|_| rng.random_bool(density))
                 .collect::<BitVec>()
                 .into();
 
@@ -36,8 +36,8 @@ fn test() {
                 }
             }
 
-            for i in 0..ones {
-                assert_eq!(select.select(i), Some(pos[i]));
+            for (i, &p) in pos.iter().enumerate() {
+                assert_eq!(select.select(i), Some(p));
             }
             assert_eq!(select.select(ones + 1), None);
         }
@@ -51,7 +51,7 @@ fn test_one_u64() {
     let density = 0.1;
     for len in lens {
         let bits: AddNumBits<_> = (0..len)
-            .map(|_| rng.gen_bool(density))
+            .map(|_| rng.random_bool(density))
             .collect::<BitVec>()
             .into();
         let select = SelectAdaptConst::<_, _, 13, 0>::new(bits.clone());
@@ -64,8 +64,8 @@ fn test_one_u64() {
             }
         }
 
-        for i in 0..ones {
-            assert_eq!(select.select(i), Some(pos[i]), "i = {}", i);
+        for (i, &p) in pos.iter().enumerate() {
+            assert_eq!(select.select(i), Some(p), "i = {}", i);
         }
         assert_eq!(select.select(ones + 1), None);
     }
@@ -79,7 +79,9 @@ fn test_w_rank9() {
     let mut rng = SmallRng::seed_from_u64(0);
     let density = 0.5;
     for len in lens {
-        let bits: BitVec = (0..len).map(|_| rng.gen_bool(density)).collect::<BitVec>();
+        let bits: BitVec = (0..len)
+            .map(|_| rng.random_bool(density))
+            .collect::<BitVec>();
 
         let rank9 = Rank9::new(bits.clone());
 
@@ -93,8 +95,8 @@ fn test_w_rank9() {
             }
         }
 
-        for i in 0..ones {
-            assert_eq!(select.select(i), Some(pos[i]));
+        for (i, &p) in pos.iter().enumerate() {
+            assert_eq!(select.select(i), Some(p));
         }
         assert_eq!(select.select(ones + 1), None);
     }
@@ -158,7 +160,7 @@ fn test_non_uniform() {
 
             let first_half = loop {
                 let b = (0..len1)
-                    .map(|_| rng.gen_bool(density0))
+                    .map(|_| rng.random_bool(density0))
                     .collect::<BitVec>();
                 if b.count_ones() > 0 {
                     break b;
@@ -166,7 +168,7 @@ fn test_non_uniform() {
             };
             let num_ones_first_half = first_half.count_ones();
             let second_half = (0..len2)
-                .map(|_| rng.gen_bool(density1))
+                .map(|_| rng.random_bool(density1))
                 .collect::<BitVec>();
             let num_ones_second_half = second_half.count_ones();
 
@@ -192,8 +194,8 @@ fn test_non_uniform() {
             }
 
             let select = SelectAdaptConst::<_, _, INV, SUB>::new(bits);
-            for i in 0..(ones) {
-                assert_eq!(select.select(i), Some(pos[i]));
+            for (i, &p) in pos.iter().enumerate() {
+                assert_eq!(select.select(i), Some(p));
             }
             assert_eq!(select.select(ones + 1), None);
         }
@@ -247,7 +249,7 @@ fn test_sub32s() {
     let density = 0.1;
     for len in lens {
         let bits: AddNumBits<BitVec> = (0..len)
-            .map(|_| rng.gen_bool(density))
+            .map(|_| rng.random_bool(density))
             .collect::<BitVec>()
             .into();
         let simple = SelectAdaptConst::<_, _, 13, 3>::new(bits.clone());
@@ -260,8 +262,8 @@ fn test_sub32s() {
             }
         }
 
-        for i in 0..ones {
-            assert_eq!(simple.select(i), Some(pos[i]));
+        for (i, &p) in pos.iter().enumerate() {
+            assert_eq!(simple.select(i), Some(p));
         }
         assert_eq!(simple.select(ones + 1), None);
     }
@@ -274,7 +276,7 @@ fn test_sub32s_last_small() {
     let density = 0.0001;
     for len in lens {
         let bits: AddNumBits<BitVec> = (0..len)
-            .map(|_| rng.gen_bool(density))
+            .map(|_| rng.random_bool(density))
             .collect::<BitVec>()
             .into();
         let simple = SelectAdaptConst::<_, _, 13, 16>::new(bits.clone());
@@ -287,8 +289,8 @@ fn test_sub32s_last_small() {
             }
         }
 
-        for i in 0..ones {
-            assert_eq!(simple.select(i), Some(pos[i]));
+        for (i, &p) in pos.iter().enumerate() {
+            assert_eq!(simple.select(i), Some(p));
         }
         assert_eq!(simple.select(ones + 1), None);
     }

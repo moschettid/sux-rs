@@ -6,6 +6,7 @@
  */
 
 use common_traits::AsBytes;
+use common_traits::Atomic;
 use common_traits::AtomicUnsignedInt;
 use common_traits::CastableFrom;
 use common_traits::CastableInto;
@@ -54,7 +55,7 @@ fn test_bit_field_vec_apply_param<W: Word + CastableInto<u64> + CastableFrom<u64
         let mut cp = BitFieldVec::<W>::new(bit_width, n);
         for _ in 0..10 {
             let values = (0..n)
-                .map(|_| rng.gen_range(0..u.cast()).cast())
+                .map(|_| rng.random_range(0..u.cast()).cast())
                 .collect::<Vec<W>>();
 
             let mut indices = (0..n).collect::<Vec<_>>();
@@ -65,7 +66,7 @@ fn test_bit_field_vec_apply_param<W: Word + CastableInto<u64> + CastableFrom<u64
             }
 
             let new_values = (0..n)
-                .map(|_| rng.gen_range(0..u.cast()).cast())
+                .map(|_| rng.random_range(0..u.cast()).cast())
                 .collect::<Vec<W>>();
 
             // Test that apply_in_place happens in the right order
@@ -77,8 +78,8 @@ fn test_bit_field_vec_apply_param<W: Word + CastableInto<u64> + CastableFrom<u64
                 res
             });
 
-            for i in 0..cp.len() {
-                assert_eq!(cp.get(i), new_values[i], "idx: {}", i);
+            for (i, c) in cp.iter().enumerate() {
+                assert_eq!(c, new_values[i], "idx: {}", i);
             }
         }
     }
@@ -102,7 +103,7 @@ fn test_param<W: Word + CastableInto<u64> + CastableFrom<u64>>() {
         );
         for _ in 0..10 {
             let values = (0..n)
-                .map(|_| rng.gen_range(0..u.cast()).cast())
+                .map(|_| rng.random_range(0..u.cast()).cast())
                 .collect::<Vec<W>>();
 
             let mut indices = (0..n).collect::<Vec<_>>();
@@ -176,7 +177,7 @@ where
         );
         for _ in 0..10 {
             let values: Vec<W> = (0..n)
-                .map(|_| rng.gen_range(0..u).cast())
+                .map(|_| rng.random_range(0..u).cast())
                 .collect::<Vec<_>>();
 
             let mut indices = (0..n).collect::<Vec<_>>();
@@ -335,6 +336,7 @@ fn test_unaligned() {
     }
 }
 
+#[cfg(debug_assertions)]
 #[should_panic]
 #[test]
 fn test_unaligned_59() {
@@ -342,6 +344,7 @@ fn test_unaligned_59() {
     assert_eq!(c.get_unaligned(0), 0);
 }
 
+#[cfg(debug_assertions)]
 #[should_panic]
 #[test]
 fn test_unaligned_61() {
@@ -349,6 +352,7 @@ fn test_unaligned_61() {
     assert_eq!(c.get_unaligned(0), 0);
 }
 
+#[cfg(debug_assertions)]
 #[should_panic]
 #[test]
 fn test_unaligned_62() {
@@ -356,6 +360,7 @@ fn test_unaligned_62() {
     assert_eq!(c.get_unaligned(0), 0);
 }
 
+#[cfg(debug_assertions)]
 #[should_panic]
 #[test]
 fn test_unaligned_63() {
@@ -418,7 +423,7 @@ fn test_atomic_reset() {
     for i in 0..10 {
         b.set_atomic(i, 1, Ordering::Relaxed);
     }
-    b.reset(Ordering::Relaxed);
+    b.reset_atomic(Ordering::Relaxed);
     for i in 0..10 {
         assert_eq!(b.get_atomic(i, Ordering::Relaxed), 0);
     }
@@ -507,7 +512,7 @@ fn test_macro() {
     let b = bit_field_vec![6; 10; 3];
     assert_eq!(b.len(), 10);
     assert_eq!(b.bit_width(), 6);
-    assert_eq!(b.iter().all(|x| x == 3), true);
+    assert!(b.iter().all(|x| x == 3));
 
     // List of values
     let b = bit_field_vec![10; 4, 500, 2, 0, 1];
@@ -518,4 +523,57 @@ fn test_macro() {
     assert_eq!(b.get(2), 2);
     assert_eq!(b.get(3), 0);
     assert_eq!(b.get(4), 1);
+}
+
+#[test]
+fn test_slice() {
+    let mut b = BitFieldVec::<u64>::new(6, 50);
+
+    assert_eq!(b.as_slice(), vec![0; 5]);
+
+    b.set(2, 1);
+
+    assert_eq!(b.as_slice(), vec![4096, 0, 0, 0, 0]);
+
+    let mut_slice = b.as_mut_slice();
+    mut_slice[2] = 1;
+
+    assert_eq!(b.as_slice(), vec![4096, 0, 1, 0, 0]);
+    assert_eq!(b.get(21), 4);
+}
+
+fn atomic_slice_eq<T: Atomic>(actual: &[T], expected: &[T])
+where
+    <T as Atomic>::NonAtomicType: PartialEq,
+    <T as Atomic>::NonAtomicType: std::fmt::Debug,
+{
+    assert_eq!(actual.len(), expected.len());
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert_eq!(
+            actual.load(Ordering::Relaxed),
+            expected.load(Ordering::Relaxed)
+        );
+    }
+}
+
+#[test]
+fn test_slice_atomic() {
+    let b = AtomicBitFieldVec::<u64>::new(6, 50);
+    let mut v = Vec::new();
+    for _ in 0..5 {
+        v.push(std::sync::atomic::AtomicU64::new(0));
+    }
+
+    atomic_slice_eq(b.as_slice(), v.as_slice());
+
+    b.set_atomic(2, 1, Ordering::Relaxed);
+    v[0].store(4096, Ordering::Relaxed);
+
+    atomic_slice_eq(b.as_slice(), v.as_slice());
+
+    b.as_slice()[2].store(1, Ordering::Relaxed);
+    v[2].store(1, Ordering::Relaxed);
+
+    atomic_slice_eq(b.as_slice(), v.as_slice());
+    assert_eq!(b.get_atomic(21, Ordering::Relaxed), 4);
 }
