@@ -2,9 +2,9 @@
 use crate::{bits::bit_vec::BitVec, traits::Word};
 use anyhow::{bail, ensure, Result};
 use core::panic;
-use std::{borrow::Borrow, cmp::min};
 #[cfg(feature = "time_log")]
 use std::time::SystemTime;
+use std::{borrow::Borrow, cmp::min};
 
 /// An equation on **F**~2~
 #[derive(Clone, Debug)]
@@ -45,7 +45,6 @@ impl<W: Word> Modulo2Equation<W, Vec<usize>> {
 }
 
 impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2Equation<W, B> {
-
     pub fn to_owned(&self) -> Modulo2Equation<W, Vec<usize>> {
         Modulo2Equation {
             bit_vector: self.bit_vector.to_owned(),
@@ -257,6 +256,25 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         Ok(solution)
     }
 
+    pub fn build_var_to_eqs<I>(mut iters: Vec<I>)
+    where
+        for<'a> &'a mut I: IntoIterator<Item = usize>
+    {
+        let len = iters.len();
+        let mut var2_eq = vec![Vec::new(); len];
+        for (i, iter) in iters.iter_mut().enumerate() {
+            for eq in iter.into_iter() {
+                var2_eq[eq].push(i);
+            }
+        }
+        let mut var2_eq = vec![Vec::new(); len];
+        for (i, mut iter) in iters.into_iter().enumerate() {
+            for eq in iter.into_iter() {
+                var2_eq[eq].push(i);
+            }
+        }
+    }
+
     /// Solves a system using lazy Gaussian elimination.
     ///
     /// # Arguments
@@ -287,16 +305,15 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         let slice_dimension = dimension_per_equation * num_equations;
         let mut equations_bits = vec![0usize; slice_dimension];
 
-        equations_bits.chunks_mut(slice_dimension).zip(c.iter())
-        // SAFETY: each equation bitvector is a part of a slice created in a single allocation
-        .for_each(|(chunk, &c)| unsafe {
-            let bv = BitVec::from_raw_parts(
-                chunk,
-                dimension_per_equation,
-            );
+        equations_bits
+            .chunks_mut(slice_dimension)
+            .zip(c.iter())
+            // SAFETY: each equation bitvector is a part of a slice created in a single allocation
+            .for_each(|(chunk, &c)| unsafe {
+                let bv = BitVec::from_raw_parts(chunk, dimension_per_equation);
 
-            system.add(Modulo2Equation::<W, &mut [usize]>::from_parts(bv, c, None))
-        });
+                system.add(Modulo2Equation::<W, &mut [usize]>::from_parts(bv, c, None))
+            });
 
         #[cfg(feature = "time_log")]
         let mut measures = Vec::new();
@@ -486,11 +503,7 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
                 .filter(|&x| eq.bit_vector.get(x))
                 .for_each(|x| var2_eq[x].push(i));
         });
-        Modulo2System::<W>::lazy_gaussian_elimination(
-            var2_eq,
-            c,
-            (0..num_vars).collect(),
-        )
+        Modulo2System::<W>::lazy_gaussian_elimination(var2_eq, c, (0..num_vars).collect())
     }
 }
 
