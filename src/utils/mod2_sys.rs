@@ -290,7 +290,7 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
     pub fn lazy_gaussian_elimination(
         var_to_eqs: Vec<Vec<usize>>,
         c: Vec<W>,
-        variables: Vec<usize>,
+        variables: Vec<usize>, // TODO: elimina
     ) -> Result<Vec<W>> {
         let num_equations = c.len();
         let num_vars = var_to_eqs.len();
