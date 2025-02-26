@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 use crate::{bits::bit_vec::BitVec, traits::Word};
 use anyhow::{bail, ensure, Result};
+use core::panic;
 use std::cmp::min;
 #[cfg(feature = "time_log")]
 use std::time::SystemTime;
@@ -39,6 +40,25 @@ impl<W: Word> Modulo2Equation<W> {
             bit_vector: BitVec::new(num_vars),
             c,
             first_var: None,
+        }
+    }
+
+    /// Creates a new `Modulo2Equation` from its components.
+    ///
+    /// # Safety
+    ///
+    /// This function is unsafe because it does not check the validity of the provided components.
+    ///
+    /// # Arguments
+    ///
+    /// * `bit_vector` - The bit vector representing the variables in the equation.
+    /// * `c` - The constant term of the equation.
+    /// * `first_var` - The index of the first variable in the equation, if any.
+    pub unsafe fn from_parts(bit_vector: BitVec, c: W, first_var: Option<u32>) -> Self {
+        Modulo2Equation {
+            bit_vector,
+            c,
+            first_var,
         }
     }
 
@@ -240,7 +260,7 @@ impl<W: Word> Modulo2System<W> {
     /// * `variable` - the variables with respect to which the system should be solved
     pub fn lazy_gaussian_elimination(
         system_op: Option<&mut Modulo2System<W>>,
-        mut var_to_eqs: Vec<Vec<usize>>,
+        var_to_eqs: Vec<Vec<usize>>,
         c: Vec<W>,
         variables: Vec<usize>,
     ) -> Result<Vec<W>> {
@@ -255,8 +275,20 @@ impl<W: Word> Modulo2System<W> {
         let system;
         if build_system {
             system = &mut new_system;
-            c.iter()
-                .for_each(|&x| system.add(Modulo2Equation::new(x, num_vars)));
+            let dimension_per_equation = num_vars.div_ceil(usize::BITS as usize);
+            let slice_dimension = dimension_per_equation * num_equations;
+            let equations_bits = vec![0usize; slice_dimension];
+            // SAFETY: each equation bitvector is a part of a slice created in a single allocation
+            c.iter().enumerate().for_each(|(i, &x)| unsafe {
+                system.add(Modulo2Equation::from_parts(
+                    BitVec::from_raw_parts(
+                        equations_bits[i * slice_dimension..(i + 1) * slice_dimension].to_vec(),
+                        dimension_per_equation,
+                    ),
+                    x,
+                    None,
+                ))
+            });
         } else {
             system = system_op.unwrap()
         }
@@ -275,47 +307,32 @@ impl<W: Word> Modulo2System<W> {
         let mut priority: Vec<usize> = vec![0; num_equations];
 
         for &v in variables.iter() {
-            let eq = &mut var_to_eqs[v];
+            let eq = &var_to_eqs[v];
             if eq.is_empty() {
                 continue;
             }
 
-            let mut curr_eq = eq[0];
-            let mut curr_coeff = true;
-            let mut j = 0;
+            if build_system {
+                system.equations[eq[0]].add(v);
+            }
+            weight[v] += 1;
+            priority[eq[0]] += 1;
 
             for i in 1..eq.len() {
-                if eq[i] != curr_eq {
+                if eq[i] != eq[i - 1] {
                     assert!(
-                        eq[i] > curr_eq,
+                        eq[i] > eq[i - 1],
                         "Equations indices do not appear in nondecreasing order"
                     );
-                    if curr_coeff {
-                        if build_system {
-                            system.equations[curr_eq].add(v);
-                        }
-                        weight[v] += 1;
-                        priority[curr_eq] += 1;
-                        eq[j] = curr_eq;
-                        j += 1;
+                    if build_system {
+                        system.equations[eq[i]].add(v);
                     }
-                    curr_eq = eq[i];
-                    curr_coeff = true;
+                    weight[v] += 1;
+                    priority[eq[i]] += 1;
                 } else {
-                    curr_coeff = !curr_coeff
+                    panic!("Equation {} appears more than once in the list of equations for variable {}", eq[i], v);
                 }
             }
-
-            if curr_coeff {
-                if build_system {
-                    system.equations[curr_eq].add(v);
-                }
-                weight[v] += 1;
-                priority[curr_eq] += 1;
-                eq[j] = curr_eq;
-                j += 1;
-            }
-            eq.truncate(j);
         }
 
         let mut variables = vec![0; num_vars];
