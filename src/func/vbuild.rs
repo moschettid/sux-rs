@@ -623,8 +623,7 @@ impl<
                 pl.done_with_count(shard.len());
 
                 pl.start("Solving system...");
-                let result = Modulo2System::lazy_gaussian_elimination(
-                    None,
+                let result = Modulo2System::<W>::lazy_gaussian_elimination(
                     var_to_eqs,
                     c,
                     (0..self.num_vertices).collect(),

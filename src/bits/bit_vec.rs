@@ -77,8 +77,7 @@ use mem_dbg::*;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
 use std::{
-    ops::Index,
-    sync::atomic::{AtomicUsize, Ordering},
+    borrow::Borrow, ops::Index, sync::atomic::{AtomicUsize, Ordering}
 };
 
 use crate::{
@@ -206,6 +205,13 @@ impl<B> BitVec<B> {
 }
 
 impl<B: AsRef<[usize]>> BitVec<B> {
+    pub fn to_owned(&self)  -> BitVec {
+        BitVec {
+            bits: self.bits.as_ref().to_vec(),
+            len: self.len,
+        }
+    }
+
     pub fn get(&self, index: usize) -> bool {
         panic_if_out_of_bounds!(index, self.len);
         unsafe { self.get_unchecked(index) }
