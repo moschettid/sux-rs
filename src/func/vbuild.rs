@@ -8,10 +8,10 @@
 use super::vfunc::*;
 use crate::bits::*;
 use crate::prelude::Rank9;
+use crate::traits::bit_field_slice::*;
 use crate::traits::NumBits;
 use crate::traits::Rank;
 use crate::utils::*;
-use crate::traits::bit_field_slice::*;
 use common_traits::CastableInto;
 use derivative::Derivative;
 use derive_setters::*;
@@ -623,12 +623,8 @@ impl<
                 pl.done_with_count(shard.len());
 
                 pl.start("Solving system...");
-                let result = Modulo2System::<W>::lazy_gaussian_elimination(
-                    var_to_eqs,
-                    c,
-                    (0..self.num_vertices).collect(),
-                )
-                .map_err(|_| ())?;
+                let result =
+                    Modulo2System::<W>::lazy_gaussian_elimination(var_to_eqs, c).map_err(|_| ())?;
                 pl.done();
 
                 for (v, &value) in result.iter().enumerate() {
@@ -971,7 +967,7 @@ impl<
 where
     SigVal<S, V>: RadixKey + Send + Sync,
 {
-    fn  try_seed<G: Fn(&SigVal<S, V>) -> W + Send + Sync>(
+    fn try_seed<G: Fn(&SigVal<S, V>) -> W + Send + Sync>(
         &mut self,
         seed: u64,
         mut sig_store: impl SigStore<S, V>,
@@ -980,8 +976,7 @@ where
         get_val: &G,
         new: fn(usize, usize) -> D,
         pl: &mut (impl ProgressLog + Clone + Send + Sync),
-    ) -> anyhow::Result<VFunc<T, W, D, S, SHARDED>>
-    {
+    ) -> anyhow::Result<VFunc<T, W, D, S, SHARDED>> {
         let mut max_value = W::ZERO;
 
         if let Some(expected_num_keys) = self.expected_num_keys {
