@@ -257,8 +257,11 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         Ok(solution)
     }
 
-    // -> Vec<impl AsRef<[usize]>>
-    pub fn build_var_to_eqs<I>(mut iters: Vec<I>, num_vars: usize)
+    pub fn build_var_to_eqs<I>(
+        var_to_eq_bits: &mut Vec<usize>,
+        mut iters: Vec<I>,
+        num_vars: usize,
+    ) -> Vec<&mut [usize]>
     where
         for<'a> &'a mut I: IntoIterator<Item = usize>,
     {
@@ -271,7 +274,7 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
             }
         }
 
-        let mut var_to_eq_bits = vec![0usize; effective_variables];
+        var_to_eq_bits.resize(effective_variables, 0);
         let mut var_to_eq: Vec<&mut [usize]> = Vec::with_capacity(num_vars);
 
         var_to_eq_bits
@@ -287,8 +290,7 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
                 var_indices[var] += 1;
             }
         }
-        println!("{:?}", var_to_eq);
-        //var_to_eq
+        var_to_eq
     }
 
     /// Solves a system using lazy Gaussian elimination.
@@ -609,7 +611,25 @@ mod tests {
             vec![2, 6, 10],
         ];
         let mut_refs: Vec<_> = iterator.into_iter().map(IndexIterator).collect();
-        Modulo2System::<usize>::build_var_to_eqs(mut_refs, 11);
+        let mut bitvec: Vec<usize> = vec![];
+        let var_to_eqs = Modulo2System::<usize>::build_var_to_eqs(&mut bitvec, mut_refs, 11);
+        let expected_res = vec![
+            vec![2, 3],
+            vec![0, 1],
+            vec![4, 5],
+            vec![],
+            vec![0, 1, 4],
+            vec![],
+            vec![2, 3, 5],
+            vec![],
+            vec![2, 4],
+            vec![1, 3],
+            vec![0, 5],
+        ];
+        var_to_eqs
+            .iter()
+            .zip(expected_res.iter())
+            .for_each(|(v, e)| v.iter().zip(e.iter()).for_each(|(x, y)| assert_eq!(x, y)));
     }
 
     // Helper struct that implements the needed trait bounds
