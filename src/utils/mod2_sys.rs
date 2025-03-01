@@ -2,7 +2,7 @@
 use crate::{bits::bit_vec::BitVec, traits::Word};
 use anyhow::{bail, ensure, Result};
 use arbitrary_chunks::ArbitraryChunks;
-use core::{num, panic};
+use core::panic;
 use std::cmp::min;
 #[cfg(feature = "time_log")]
 use std::time::SystemTime;
@@ -263,15 +263,15 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         num_vars: usize,
     ) -> Vec<&mut [usize]>
     where
-        for<'a> &'a mut I: IntoIterator<Item = usize>,
+        for<'a> &'a I: IntoIterator<Item = &'a usize>,
     {
         let mut var_count = vec![0usize; num_vars];
         let mut effective_variables = 0;
         for it in iters.iter_mut() {
-            for var in it.into_iter() {
+            it.into_iter().for_each(|&var| {
                 var_count[var] += 1;
                 effective_variables += 1;
-            }
+            })
         }
 
         var_to_eq_bits.resize(effective_variables, 0);
@@ -285,10 +285,10 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
 
         let mut var_indices = vec![0usize; num_vars];
         for (i, it) in iters.iter_mut().enumerate() {
-            for var in it.into_iter() {
+            it.into_iter().for_each(|&var| {
                 var_to_eq[var][var_indices[var]] = i;
                 var_indices[var] += 1;
-            }
+            })
         }
         var_to_eq
     }
@@ -301,7 +301,7 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
     ///   in which it appears.
     ///
     /// * `c` - The vector of known terms, one for each equation.
-    pub fn lazy_gaussian_elimination(var_to_eqs: Vec<Vec<usize>>, c: Vec<W>) -> Result<Vec<W>> {
+    pub fn lazy_gaussian_elimination(var_to_eqs: Vec<&mut [usize]>, c: Vec<W>) -> Result<Vec<W>> {
         let num_equations = c.len();
         let num_vars = var_to_eqs.len();
         if num_equations == 0 {
@@ -309,12 +309,12 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         }
 
         let mut system = Modulo2System::<W, &mut [usize]>::new(num_vars);
-        let dimension_per_equation = num_vars.div_ceil(usize::BITS as usize);
-        let slice_dimension = dimension_per_equation * num_equations;
+        let size_per_equation = num_vars.div_ceil(usize::BITS as usize);
+        let slice_dimension = size_per_equation * num_equations;
         let mut equations_bits = vec![0usize; slice_dimension];
 
         equations_bits
-            .chunks_mut(dimension_per_equation)
+            .chunks_mut(size_per_equation)
             .zip(c.iter())
             // SAFETY: each equation bitvector is a part of a slice created in a single allocation
             .for_each(|(chunk, &c)| unsafe {
@@ -488,27 +488,17 @@ impl<W: Word, B: AsRef<[usize]> + AsMut<[usize]>> Modulo2System<W, B> {
         Ok(solution)
     }
 
+    #[cfg(test)]
     pub fn lazy_gaussian_elimination_constructor(&mut self) -> Result<Vec<W>> {
         let num_vars = self.num_vars;
-        let mut var2_eq = vec![Vec::new(); num_vars];
-        let mut d = vec![0; num_vars];
-        self.equations.iter().for_each(|eq| {
-            (0..eq.bit_vector.len())
-                .filter(|&x| eq.bit_vector.get(x))
-                .for_each(|x| d[x] += 1)
-        });
 
-        var2_eq
-            .iter_mut()
-            .enumerate()
-            .for_each(|(i, v)| v.reserve_exact(d[i]));
-
+        let variables: Vec<Vec<usize>> = self.equations.iter().map(|eq| eq.variables()).collect();
+        let mut var_to_eq_bits = Vec::new();
+        let var2_eq =
+            Modulo2System::<W>::build_var_to_eqs(&mut var_to_eq_bits, variables, num_vars);
         let mut c = vec![W::ZERO; self.equations.len()];
         self.equations.iter().enumerate().for_each(|(i, eq)| {
             c[i] = eq.c;
-            (0..eq.bit_vector.len())
-                .filter(|&x| eq.bit_vector.get(x))
-                .for_each(|x| var2_eq[x].push(i));
         });
         Modulo2System::<W>::lazy_gaussian_elimination(var2_eq, c)
     }
@@ -602,7 +592,7 @@ mod tests {
 
     #[test]
     fn test_var_to_vec_builder() {
-        let iterator = vec![
+        let equations = vec![
             vec![1usize, 4, 10],
             vec![1, 4, 9],
             vec![0, 6, 8],
@@ -610,9 +600,8 @@ mod tests {
             vec![2, 4, 8],
             vec![2, 6, 10],
         ];
-        let mut_refs: Vec<_> = iterator.into_iter().map(IndexIterator).collect();
         let mut bitvec: Vec<usize> = vec![];
-        let var_to_eqs = Modulo2System::<usize>::build_var_to_eqs(&mut bitvec, mut_refs, 11);
+        let var_to_eqs = Modulo2System::<usize>::build_var_to_eqs(&mut bitvec, equations, 11);
         let expected_res = vec![
             vec![2, 3],
             vec![0, 1],
@@ -630,18 +619,5 @@ mod tests {
             .iter()
             .zip(expected_res.iter())
             .for_each(|(v, e)| v.iter().zip(e.iter()).for_each(|(x, y)| assert_eq!(x, y)));
-    }
-
-    // Helper struct that implements the needed trait bounds
-    struct IndexIterator(Vec<usize>);
-
-    // Implement IntoIterator for &mut IndexIterator that produces usize values
-    impl<'a> IntoIterator for &'a mut IndexIterator {
-        type Item = usize;
-        type IntoIter = std::iter::Copied<std::slice::Iter<'a, usize>>;
-
-        fn into_iter(self) -> Self::IntoIter {
-            self.0.iter().copied()
-        }
     }
 }

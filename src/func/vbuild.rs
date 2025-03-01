@@ -623,13 +623,13 @@ impl<
                 pl.done_with_count(shard.len());
 
                 pl.start("Solving system...");
-                let result =
+                /*let result =
                     Modulo2System::<W>::lazy_gaussian_elimination(var_to_eqs, c).map_err(|_| ())?;
                 pl.done();
 
                 for (v, &value) in result.iter().enumerate() {
                     data.set(v, value);
-                }
+                }*/
 
                 Ok(self.assign(shard_index, shard, data, get_val, edge_lists, stack, pl))
             }
@@ -1271,7 +1271,7 @@ mod tests {
                 let corr1 = corr1 as f64 / 100.0;
                 let mut err = 0;
                 for &(n, log2) in data_points.iter() {
-                    let log2 = log2;
+                    //let log2 = log2;
 
                     let bound = bound(n, corr0, corr1) as usize;
                     if log2 != bound {
@@ -1290,7 +1290,7 @@ mod tests {
                     _best_corr1 = corr1;
 
                     for &(n, log2) in data_points.iter() {
-                        let log2 = log2;
+                        //let log2 = log2;
 
                         let bound = bound(n, _best_corr0, _best_corr1) as usize;
                         eprintln!("n: {} log2: {} bound: {}", n, log2, bound);
